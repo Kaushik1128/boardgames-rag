@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# uv
+# Note: .python-version is intentionally committed (uv reads it).
+.uv-cache/
+
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Secrets / local env
+.env
+.env.local
+.env.*.local
+
+# Qdrant (when run as bind-mount instead of named volume)
+qdrant_storage/
+
+# Local model cache (HF + sentence-transformers default to ~/.cache, but
+# allow project-local overrides without committing weights)
+models/
+.cache/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Claude Code per-machine permission state (shared settings.json may be tracked)
+.claude/settings.local.json
+
+# Data — keep the directory, not its contents
+data/raw/*
+!data/raw/.gitkeep

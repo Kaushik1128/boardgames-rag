@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------------
+# boardgames-rag — runtime configuration
+#
+# Loaded by `boardgames_rag.config.Settings`. CLI flags override these.
+# Secrets live in .env, not here.
+# ---------------------------------------------------------------------------
+
+qdrant:
+  url: http://localhost:6333
+  collection: boardgames
+  # Distance metric for the dense vectors. Cosine is correct for normalized
+  # bge embeddings.
+  distance: Cosine
+
+embedding:
+  # Swap to BAAI/bge-base-en-v1.5 (~440MB) when you want more headroom.
+  model_name: BAAI/bge-small-en-v1.5
+  device: cpu
+  batch_size: 32
+  # bge models expect L2-normalized vectors paired with Cosine distance.
+  normalize: true
+
+chunking:
+  target_tokens: 512
+  overlap_tokens: 50
+  tokenizer: cl100k_base
+
+ingest:
+  source_dir: ./data/raw
