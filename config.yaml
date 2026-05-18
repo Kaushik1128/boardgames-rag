@@ -27,3 +27,27 @@ chunking:
 
 ingest:
   source_dir: ./data/raw
+
+retrieval:
+  # Number of results returned after fusion.
+  top_k: 10
+  # Each retriever overfetches this many candidates before fusion. Giving the
+  # fusion stage room to promote results that only one retriever found.
+  k_per_retriever: 20
+
+  bm25:
+    # Pickled index lives at <index_dir>/<collection>.pkl.
+    index_dir: ./data/bm25
+    # Standard rank-bm25 / Okapi parameters.
+    k1: 1.5
+    b: 0.75
+
+  fusion:
+    # "rrf" (Reciprocal Rank Fusion) or "weighted".
+    method: rrf
+    # RRF constant. 60 is the canonical Cormack et al. value; higher dampens
+    # the influence of rank position.
+    rrf_k: 60
+    # For "weighted" fusion only: dense gets `weighted_alpha`, BM25 gets
+    # `1 - weighted_alpha`. Ignored when method is "rrf".
+    weighted_alpha: 0.5

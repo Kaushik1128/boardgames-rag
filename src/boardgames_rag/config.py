@@ -2,8 +2,8 @@
 
 Layering (lowest → highest priority):
     pydantic defaults  <  config.yaml  <  process env vars  <  .env file
-CLI flags in the ingest module override at runtime by mutating the Settings
-object before passing it down.
+CLI flags in the ingest / retrieve modules override at runtime by mutating
+the Settings object before passing it down.
 """
 
 from __future__ import annotations
@@ -39,6 +39,33 @@ class IngestConfig(BaseModel):
     source_dir: Path = Path("./data/raw")
 
 
+class BM25Config(BaseModel):
+    """rank-bm25 parameters and on-disk index location."""
+
+    index_dir: Path = Path("./data/bm25")
+    k1: float = 1.5
+    b: float = 0.75
+
+
+class FusionConfig(BaseModel):
+    """How dense + BM25 rankings are combined into a single result list."""
+
+    method: Literal["rrf", "weighted"] = "rrf"
+    rrf_k: int = 60
+    # Weight assigned to the dense retriever in weighted-score fusion; the
+    # BM25 retriever gets (1 - weighted_alpha). Ignored when method == "rrf".
+    weighted_alpha: float = 0.5
+
+
+class RetrievalConfig(BaseModel):
+    """Hybrid retrieval settings."""
+
+    top_k: int = 10
+    k_per_retriever: int = 20
+    bm25: BM25Config = BM25Config()
+    fusion: FusionConfig = FusionConfig()
+
+
 class Settings(BaseSettings):
     """Application settings. Construct via `load_settings()`."""
 
@@ -54,6 +81,7 @@ class Settings(BaseSettings):
     embedding: EmbeddingConfig = EmbeddingConfig()
     chunking: ChunkingConfig = ChunkingConfig()
     ingest: IngestConfig = IngestConfig()
+    retrieval: RetrievalConfig = RetrievalConfig()
 
     # Free-tier API keys, populated from .env. Not used until week 4+.
     gemini_api_key: str | None = None

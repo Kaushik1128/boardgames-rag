@@ -54,3 +54,6 @@ Thumbs.db
 # Data — keep the directory, not its contents
 data/raw/*
 !data/raw/.gitkeep
+
+# Built BM25 indexes — regenerated from source data via the ingest CLI
+data/bm25/*

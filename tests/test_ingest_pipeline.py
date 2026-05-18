@@ -52,7 +52,15 @@ def patched_pipeline(monkeypatch):
     monkeypatch.setattr(ingest_module, "QdrantStore", FakeQdrantStore)
 
 
-def _write_minimal_mtg(path):
+@pytest.fixture
+def settings(tmp_path) -> Settings:
+    """Settings whose BM25 index_dir is per-test, isolating disk artifacts."""
+    s = Settings()
+    s.retrieval.bm25.index_dir = tmp_path / "bm25"
+    return s
+
+
+def _write_minimal_mtg(path) -> None:
     path.write_text(
         "100. General\n"
         "\n"
@@ -63,33 +71,43 @@ def _write_minimal_mtg(path):
     )
 
 
-def test_ingest_directory_runs_end_to_end(tmp_path, patched_pipeline):
-    _write_minimal_mtg(tmp_path / "rules.txt")
-    total = ingest_module.ingest_directory(tmp_path, "test-collection", Settings())
+def test_ingest_directory_runs_end_to_end(tmp_path, patched_pipeline, settings):
+    src = tmp_path / "src"
+    src.mkdir()
+    _write_minimal_mtg(src / "rules.txt")
+    total = ingest_module.ingest_directory(src, "test-collection", settings)
     assert total > 0
+    # BM25 index was persisted alongside the Qdrant upserts.
+    assert (settings.retrieval.bm25.index_dir / "test-collection.pkl").exists()
 
 
-def test_ingest_directory_missing_dir_raises(tmp_path, patched_pipeline):
+def test_ingest_directory_missing_dir_raises(tmp_path, patched_pipeline, settings):
     with pytest.raises(FileNotFoundError):
-        ingest_module.ingest_directory(tmp_path / "missing", "test", Settings())
+        ingest_module.ingest_directory(tmp_path / "missing", "test", settings)
 
 
-def test_ingest_directory_empty_dir_returns_zero(tmp_path, patched_pipeline):
-    total = ingest_module.ingest_directory(tmp_path, "test", Settings())
+def test_ingest_directory_empty_dir_returns_zero(tmp_path, patched_pipeline, settings):
+    src = tmp_path / "src"
+    src.mkdir()
+    total = ingest_module.ingest_directory(src, "test", settings)
     assert total == 0
 
 
-def test_ingest_directory_skips_unsupported_files(tmp_path, patched_pipeline):
-    (tmp_path / "ignored.docx").write_text("ignored", encoding="utf-8")
-    _write_minimal_mtg(tmp_path / "rules.txt")
-    total = ingest_module.ingest_directory(tmp_path, "test", Settings())
+def test_ingest_directory_skips_unsupported_files(tmp_path, patched_pipeline, settings):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "ignored.docx").write_text("ignored", encoding="utf-8")
+    _write_minimal_mtg(src / "rules.txt")
+    total = ingest_module.ingest_directory(src, "test", settings)
     assert total > 0  # only the .txt was ingested
 
 
-def test_ingest_directory_with_no_chunks_returns_zero(tmp_path, patched_pipeline):
+def test_ingest_directory_with_no_chunks_returns_zero(tmp_path, patched_pipeline, settings):
     # A .txt that produces no parseable sections (empty body, no headings).
-    (tmp_path / "empty.txt").write_text("", encoding="utf-8")
-    total = ingest_module.ingest_directory(tmp_path, "test", Settings())
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "empty.txt").write_text("", encoding="utf-8")
+    total = ingest_module.ingest_directory(src, "test", settings)
     assert total == 0
 
 
@@ -101,7 +119,14 @@ def test_cli_main_invokes_pipeline(tmp_path, patched_pipeline):
     src = tmp_path / "src"
     src.mkdir()
     _write_minimal_mtg(src / "rules.txt")
-    fake_config = tmp_path / "noconfig.yaml"  # absent → pydantic defaults
+
+    # Materialize a tiny config.yaml that redirects the BM25 index_dir so the
+    # test doesn't write into the real ./data/bm25 directory.
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f"retrieval:\n  bm25:\n    index_dir: {(tmp_path / 'bm25').as_posix()}\n",
+        encoding="utf-8",
+    )
 
     runner = CliRunner()
     result = runner.invoke(
@@ -112,7 +137,7 @@ def test_cli_main_invokes_pipeline(tmp_path, patched_pipeline):
             "--collection",
             "test-collection",
             "--config",
-            str(fake_config),
+            str(config_path),
             "--log-level",
             "WARNING",
         ],

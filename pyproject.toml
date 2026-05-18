@@ -28,6 +28,7 @@ dependencies = [
     "sentence-transformers>=3.0",
     "qdrant-client>=1.12",
     "numpy>=1.26",
+    "rank-bm25>=0.2.2",
 ]
 
 [dependency-groups]

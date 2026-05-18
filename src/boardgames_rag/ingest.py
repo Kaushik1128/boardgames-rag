@@ -398,8 +398,19 @@ def ingest_directory(
     collection: str,
     settings: Settings,
 ) -> int:
-    """Run the full ingestion pipeline. Returns total chunks upserted."""
+    """Run the full ingestion pipeline. Returns total chunks upserted.
+
+    Side effects per run:
+
+    * Upserts dense vectors + payloads into the Qdrant collection.
+    * Writes a BM25 index pickle to ``settings.retrieval.bm25.index_dir /
+      f"{collection}.pkl"`` (the source of truth for week-2 lexical retrieval).
+    """
     from qdrant_client.http.models import PointStruct  # lazy
+
+    # Lazy import to avoid a module-level cycle: retrieve.py imports Embedder
+    # from this module inside its CLI builder.
+    from boardgames_rag.retrieve import BM25Index, tokenize
 
     if not source_dir.exists():
         raise FileNotFoundError(f"Source directory does not exist: {source_dir}")
@@ -452,28 +463,47 @@ def ingest_directory(
         MofNCompleteColumn(),
         TimeElapsedColumn(),
     )
+    # Parallel arrays gathered during pass 2 → fed to the BM25 index in pass 3.
+    bm25_point_ids: list[str] = []
+    bm25_tokenized: list[list[str]] = []
+
     with Progress(*progress_cols, console=console) as progress:
         task = progress.add_task("Embedding & upserting", total=total_chunks)
         for path, chunks in plan:
             for batch in batched(chunks, settings.embedding.batch_size):
                 vectors = embedder.embed([c.text for c in batch])
-                points = [
-                    PointStruct(
-                        id=stable_chunk_id(path.name, chunk.chunk_index, chunk.text),
-                        vector=vectors[i].tolist(),
-                        payload={
-                            "source_file": path.name,
-                            "page": chunk.page,
-                            "chunk_index": chunk.chunk_index,
-                            "heading": chunk.heading,
-                            "parent_heading": chunk.parent_heading,
-                            "text": chunk.text,
-                        },
+                points: list = []
+                for i, chunk in enumerate(batch):
+                    pid = stable_chunk_id(path.name, chunk.chunk_index, chunk.text)
+                    points.append(
+                        PointStruct(
+                            id=pid,
+                            vector=vectors[i].tolist(),
+                            payload={
+                                "source_file": path.name,
+                                "page": chunk.page,
+                                "chunk_index": chunk.chunk_index,
+                                "heading": chunk.heading,
+                                "parent_heading": chunk.parent_heading,
+                                "text": chunk.text,
+                            },
+                        )
                     )
-                    for i, chunk in enumerate(batch)
-                ]
+                    bm25_point_ids.append(pid)
+                    bm25_tokenized.append(tokenize(chunk.text))
                 store.upsert(points)
                 progress.advance(task, len(batch))
+
+    # Pass 3: build & persist the BM25 index alongside the dense vectors.
+    bm25_index = BM25Index.build(
+        bm25_point_ids,
+        bm25_tokenized,
+        k1=settings.retrieval.bm25.k1,
+        b=settings.retrieval.bm25.b,
+    )
+    index_path = settings.retrieval.bm25.index_dir / f"{collection}.pkl"
+    bm25_index.save(index_path)
+    logger.info("BM25 index → %s (%d points)", index_path, len(bm25_point_ids))
 
     logger.info("Ingestion complete: %d chunks into %r", total_chunks, collection)
     return total_chunks
