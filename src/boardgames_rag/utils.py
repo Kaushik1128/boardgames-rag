@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
+import sys
 import uuid
 
 from rich.logging import RichHandler
@@ -12,8 +14,25 @@ from rich.logging import RichHandler
 INGEST_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "boardgames-rag.ingest")
 
 
+def _force_utf8_stdio() -> None:
+    """Reconfigure stdout/stderr to UTF-8 (best-effort).
+
+    Rulebook text and CLI output contain non-ASCII characters (em dashes,
+    arrows, accented letters). Windows consoles default to cp1252, which
+    raises UnicodeEncodeError on those; UTF-8 encodes all of them. Wrapped
+    streams (e.g. pytest/Click capture buffers) may lack ``reconfigure`` or
+    refuse it — both cases are tolerated.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            with contextlib.suppress(ValueError, OSError):
+                reconfigure(encoding="utf-8")
+
+
 def setup_logging(level: int = logging.INFO) -> None:
-    """Configure root logging to render through rich."""
+    """Configure root logging through rich and force UTF-8 console output."""
+    _force_utf8_stdio()
     logging.basicConfig(
         level=level,
         format="%(message)s",
