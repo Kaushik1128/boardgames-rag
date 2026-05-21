@@ -94,6 +94,22 @@ class GenerationConfig(BaseModel):
     max_context_chunks: int = 5
 
 
+class EvalConfig(BaseModel):
+    """Ragas evaluation settings (week 4)."""
+
+    testset_path: Path = Path("eval/testset.jsonl")
+    results_dir: Path = Path("eval/results")
+    # Judge LLM provider. "groq" (free tier — fast, generous) or "gemini"
+    # (free tier is heavily rate-limited; practical only with a paid key).
+    judge_provider: Literal["groq", "gemini"] = "groq"
+    judge_model: str = "llama-3.3-70b-versatile"
+    judge_temperature: float = 0.0
+    # Ragas RunConfig.
+    max_workers: int = 2
+    timeout_seconds: int = 180
+    max_retries: int = 5
+
+
 class Settings(BaseSettings):
     """Application settings. Construct via `load_settings()`."""
 
@@ -112,6 +128,7 @@ class Settings(BaseSettings):
     retrieval: RetrievalConfig = RetrievalConfig()
     rerank: RerankConfig = RerankConfig()
     generation: GenerationConfig = GenerationConfig()
+    eval: EvalConfig = EvalConfig()
 
     # Free-tier API keys, populated from .env. Not used until week 4+.
     gemini_api_key: str | None = None

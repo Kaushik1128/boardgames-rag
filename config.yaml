@@ -73,3 +73,17 @@ generation:
   timeout_seconds: 120.0
   # Reranked chunks placed into the prompt as numbered context.
   max_context_chunks: 5
+
+eval:
+  # Curated test set (committed) and where run results are written.
+  testset_path: eval/testset.jsonl
+  results_dir: eval/results
+  # Judge LLM. "groq" (free tier — fast, generous) or "gemini" (free tier is
+  # heavily rate-limited — practical only with a paid key).
+  judge_provider: groq
+  judge_model: llama-3.3-70b-versatile
+  judge_temperature: 0.0
+  # Ragas concurrency.
+  max_workers: 2
+  timeout_seconds: 180
+  max_retries: 5
