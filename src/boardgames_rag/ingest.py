@@ -209,10 +209,10 @@ def pack_sections(
 # ---------------------------------------------------------------------------
 
 _MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
-# Inline markdown emphasis markers (`*`, `_`, backtick) that pymupdf4llm
-# leaves embedded in heading text — e.g. it renders a bold PDF heading as
-# "# **CITIES**".
-_MD_EMPHASIS_RE = re.compile(r"[*_`]+")
+# Inline markdown styling markers that pymupdf4llm leaves embedded in heading
+# text: bold/italic (`*`, `_`), code (backtick), strikethrough (`~`). E.g. it
+# renders styled PDF headings as "# **CITIES**" or "# ~~LOAN ACTION~~".
+_MD_EMPHASIS_RE = re.compile(r"[*_~`]+")
 
 
 def _clean_heading(raw: str) -> str:
