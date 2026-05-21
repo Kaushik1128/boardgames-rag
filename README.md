@@ -18,7 +18,7 @@ as a deeply-numbered plain-text document.
 | 1 | Project scaffold, Qdrant via docker-compose, ingestion pipeline (PDF + plain-text), chunker tests. |
 | 2 | Hybrid retrieval — BM25 + dense, fused. |
 | 3 | Local cross-encoder reranking with `bge-reranker-base`; generator wiring (Ollama). |
-| 4 | Ragas evaluation with Gemini 2.0 Flash as judge (free tier). |
+| 4 | Ragas evaluation — faithfulness, answer relevancy, context precision & recall; rerank on/off ablation; local LLM judge (optional hosted). |
 | 5 | Agentic loop in LangGraph — planner / retriever / critic / DuckDuckGo fallback. |
 | 6 | FastAPI service exposing query + eval endpoints. |
 | 7 | Deploy on HuggingFace Spaces (free tier). |

@@ -440,4 +440,4 @@ def test_cli_judge_provider_override_picks_default_model(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert captured["provider"] == "gemini"
     # --judge-model was not given → the provider's default model is selected.
-    assert captured["model"] == "gemini-2.0-flash"
+    assert captured["model"] == "gemini-2.5-flash"

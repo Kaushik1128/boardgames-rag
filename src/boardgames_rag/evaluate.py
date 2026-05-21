@@ -185,7 +185,7 @@ def run_rag_over_testset(
 _DEFAULT_JUDGE_MODELS = {
     "ollama": "llama3.1:latest",
     "groq": "llama-3.3-70b-versatile",
-    "gemini": "gemini-2.0-flash",
+    "gemini": "gemini-2.5-flash",
 }
 
 
