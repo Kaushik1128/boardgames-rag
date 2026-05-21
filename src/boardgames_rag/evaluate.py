@@ -4,8 +4,10 @@ Runs the answer() pipeline over a curated test set and scores it on
 faithfulness, answer relevancy, context precision, and context recall, then
 compares rerank-on against rerank-off.
 
-The judge LLM is configurable via `eval.judge_provider`: "groq" (default —
-fast, generous free tier) or "gemini" (free tier is heavily rate-limited).
+The judge LLM is configurable via `eval.judge_provider`: "ollama" (default —
+a local model, no API quota; slow on CPU but always completes the full run),
+"groq", or "gemini" (hosted free tiers — fast, but their token/rate quotas
+cannot cover a full 30-question Ragas eval).
 
 CLI:
 
@@ -81,6 +83,8 @@ class EvalReport:
     collection: str
     judge_model: str
     n_samples: int
+    # Fraction of (sample x metric) cells the judge actually scored.
+    coverage: float
     aggregates: dict[str, float | None]
     per_sample: list[dict[str, Any]]
     timestamp: str
@@ -178,10 +182,20 @@ def run_rag_over_testset(
 
 
 def build_judge(settings: Settings) -> Any:
-    """Wrap the configured judge LLM (Groq or Gemini) as a Ragas LLM."""
+    """Wrap the configured judge LLM (Ollama, Groq, or Gemini) as a Ragas LLM."""
     from ragas.llms import LangchainLLMWrapper
 
-    if settings.eval.judge_provider == "groq":
+    if settings.eval.judge_provider == "ollama":
+        from langchain_ollama import ChatOllama
+
+        # Local judge — no API key, no quota wall. Slow on CPU but always
+        # completes the full eval, which hosted free tiers cannot.
+        chat: Any = ChatOllama(
+            model=settings.eval.judge_model,
+            base_url=settings.eval.judge_base_url,
+            temperature=settings.eval.judge_temperature,
+        )
+    elif settings.eval.judge_provider == "groq":
         from langchain_groq import ChatGroq
 
         if not settings.groq_api_key:
@@ -190,7 +204,7 @@ def build_judge(settings: Settings) -> Any:
                 "the Ragas judge. Get a free key at "
                 "https://console.groq.com/keys."
             )
-        chat: Any = ChatGroq(
+        chat = ChatGroq(
             model=settings.eval.judge_model,
             api_key=settings.groq_api_key,
             temperature=settings.eval.judge_temperature,
@@ -321,6 +335,20 @@ def aggregate_scores(per_sample: list[dict[str, Any]]) -> dict[str, float | None
     return aggregates
 
 
+def score_coverage(per_sample: list[dict[str, Any]]) -> float:
+    """Fraction of (sample x metric) score cells the judge actually populated.
+
+    A low value means the judge LLM failed on most calls (e.g. a hosted
+    free-tier token/rate quota was exhausted) — the aggregates are then
+    computed from a non-representative subset and are not trustworthy.
+    """
+    total = sum(len(s["scores"]) for s in per_sample)
+    if total == 0:
+        return 0.0
+    scored = sum(1 for s in per_sample for v in s["scores"].values() if v is not None)
+    return round(scored / total, 4)
+
+
 def save_report(report: EvalReport, results_dir: Path) -> Path:
     """Write an EvalReport to results_dir as JSON. Returns the file path."""
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -421,22 +449,31 @@ def main(
             settings=settings,
         )
         console.print(
-            f"  scoring with Ragas + {settings.eval.judge_model} (slow on the free tier) ..."
+            f"  scoring with Ragas + {settings.eval.judge_provider}:{settings.eval.judge_model} ..."
         )
         per_sample = evaluate_samples(
             run_samples, judge=judge, embeddings=embeddings, settings=settings
         )
+        coverage = score_coverage(per_sample)
         report = EvalReport(
             label=label,
             collection=collection,
             judge_model=settings.eval.judge_model,
             n_samples=len(run_samples),
+            coverage=coverage,
             aggregates=aggregate_scores(per_sample),
             per_sample=per_sample,
             timestamp=datetime.now(UTC).isoformat(timespec="seconds"),
         )
         saved = save_report(report, settings.eval.results_dir)
-        console.print(f"  saved -> {saved}")
+        console.print(f"  saved -> {saved}  (score coverage {coverage:.0%})")
+        if coverage < 0.9:
+            console.print(
+                f"  [red bold]WARNING[/red bold]: only {coverage:.0%} of "
+                f"{label} scores were populated — the judge LLM failed on the "
+                "rest. The aggregates below are from a non-representative "
+                "subset and should not be trusted."
+            )
         reports.append(report)
 
     console.print()

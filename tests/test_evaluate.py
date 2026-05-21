@@ -26,6 +26,7 @@ from boardgames_rag.evaluate import (
     load_testset,
     run_rag_over_testset,
     save_report,
+    score_coverage,
 )
 from boardgames_rag.retrieve import RetrievedChunk
 
@@ -250,6 +251,30 @@ class TestAggregateScores:
 
 
 # ---------------------------------------------------------------------------
+# score_coverage
+# ---------------------------------------------------------------------------
+
+
+class TestScoreCoverage:
+    def test_full_coverage(self):
+        per_sample = [
+            {"scores": {"a": 1.0, "b": 0.5}},
+            {"scores": {"a": 0.0, "b": 1.0}},
+        ]
+        assert score_coverage(per_sample) == 1.0
+
+    def test_partial_coverage(self):
+        per_sample = [
+            {"scores": {"a": 1.0, "b": None}},
+            {"scores": {"a": None, "b": None}},
+        ]
+        assert score_coverage(per_sample) == 0.25
+
+    def test_empty_returns_zero(self):
+        assert score_coverage([]) == 0.0
+
+
+# ---------------------------------------------------------------------------
 # save_report
 # ---------------------------------------------------------------------------
 
@@ -259,8 +284,9 @@ class TestSaveReport:
         return EvalReport(
             label="rerank-on",
             collection="boardgames",
-            judge_model="gemini-2.0-flash",
+            judge_model="llama3.1:latest",
             n_samples=2,
+            coverage=1.0,
             aggregates={"faithfulness": 0.9},
             per_sample=[{"id": "a", "scores": {"faithfulness": 0.9}}],
             timestamp="2026-05-21T12:00:00+00:00",

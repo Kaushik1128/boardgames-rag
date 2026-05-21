@@ -78,10 +78,14 @@ eval:
   # Curated test set (committed) and where run results are written.
   testset_path: eval/testset.jsonl
   results_dir: eval/results
-  # Judge LLM. "groq" (free tier — fast, generous) or "gemini" (free tier is
-  # heavily rate-limited — practical only with a paid key).
-  judge_provider: groq
-  judge_model: llama-3.3-70b-versatile
+  # Judge LLM provider:
+  #   ollama — local model, no API quota (slow on CPU but always completes)
+  #   groq   — hosted free tier (fast, but a daily token quota caps a run)
+  #   gemini — hosted free tier (heavily rate-limited)
+  judge_provider: ollama
+  judge_model: llama3.1:latest
+  # Native Ollama endpoint — used only when judge_provider is "ollama".
+  judge_base_url: http://localhost:11434
   judge_temperature: 0.0
   # Ragas concurrency.
   max_workers: 2

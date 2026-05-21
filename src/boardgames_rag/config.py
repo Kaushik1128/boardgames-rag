@@ -99,10 +99,14 @@ class EvalConfig(BaseModel):
 
     testset_path: Path = Path("eval/testset.jsonl")
     results_dir: Path = Path("eval/results")
-    # Judge LLM provider. "groq" (free tier — fast, generous) or "gemini"
-    # (free tier is heavily rate-limited; practical only with a paid key).
-    judge_provider: Literal["groq", "gemini"] = "groq"
-    judge_model: str = "llama-3.3-70b-versatile"
+    # Judge LLM provider for Ragas scoring:
+    #   "ollama" — local model, no API quota (slow on CPU but always completes)
+    #   "groq"   — hosted free tier (fast, but a daily token quota caps a run)
+    #   "gemini" — hosted free tier (heavily rate-limited)
+    judge_provider: Literal["ollama", "groq", "gemini"] = "ollama"
+    judge_model: str = "llama3.1:latest"
+    # Native Ollama API endpoint — used only when judge_provider is "ollama".
+    judge_base_url: str = "http://localhost:11434"
     judge_temperature: float = 0.0
     # Ragas RunConfig.
     max_workers: int = 2
