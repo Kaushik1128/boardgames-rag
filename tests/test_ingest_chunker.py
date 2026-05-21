@@ -237,6 +237,15 @@ class TestParseMarkdown:
     def test_empty_document_returns_empty(self):
         assert parse_markdown_into_sections("") == []
 
+    def test_strips_markdown_emphasis_from_headings(self):
+        # pymupdf4llm renders bold PDF headings as "# **HEADING**".
+        md = "# **CITIES**\n\nbody one\n\n## *Setup*\n\nbody two\n"
+        sections = parse_markdown_into_sections(md)
+        headings = [s.heading for s in sections]
+        assert "CITIES" in headings
+        assert "Setup" in headings
+        assert all("*" not in (h or "") for h in headings)
+
 
 # ---------------------------------------------------------------------------
 # parse_mtg_text_into_sections

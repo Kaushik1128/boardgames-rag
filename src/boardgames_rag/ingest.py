@@ -209,6 +209,21 @@ def pack_sections(
 # ---------------------------------------------------------------------------
 
 _MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+# Inline markdown emphasis markers (`*`, `_`, backtick) that pymupdf4llm
+# leaves embedded in heading text — e.g. it renders a bold PDF heading as
+# "# **CITIES**".
+_MD_EMPHASIS_RE = re.compile(r"[*_`]+")
+
+
+def _clean_heading(raw: str) -> str:
+    """Strip markdown emphasis markers from heading text.
+
+    Without this, literal asterisks leak into a chunk's ``heading`` metadata
+    (``**CITIES**`` instead of ``CITIES``). Heading text is not part of the
+    chunk's stable ID, so re-ingesting after this change updates payloads in
+    place without creating new points.
+    """
+    return _MD_EMPHASIS_RE.sub("", raw).strip()
 
 
 def parse_markdown_into_sections(md: str) -> list[Section]:
@@ -237,7 +252,7 @@ def parse_markdown_into_sections(md: str) -> list[Section]:
         if m:
             flush()
             level = len(m.group(1))
-            new_heading = m.group(2).strip()
+            new_heading = _clean_heading(m.group(2))
             for lvl in [lv for lv in headings_by_level if lv >= level]:
                 del headings_by_level[lvl]
             higher = [lv for lv in headings_by_level if lv < level]
