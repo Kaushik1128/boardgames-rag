@@ -41,12 +41,16 @@ console = Console()
 __all__ = [
     "BM25Index",
     "BM25Retriever",
+    "CrossEncoderProtocol",
     "DenseRetriever",
     "HybridRetriever",
     "IndexOutOfSyncError",
+    "Reranker",
     "RetrievedChunk",
+    "build_hybrid_retriever",
     "main",
     "reciprocal_rank_fusion",
+    "rerank_chunks",
     "tokenize",
     "weighted_score_fusion",
 ]
@@ -423,6 +427,83 @@ class HybridRetriever:
 
 
 # ---------------------------------------------------------------------------
+# Reranking (cross-encoder)
+# ---------------------------------------------------------------------------
+
+
+class CrossEncoderProtocol(Protocol):
+    """Minimal surface of sentence-transformers' CrossEncoder used here."""
+
+    def predict(self, sentences: list[tuple[str, str]], **kwargs: Any) -> Any: ...
+
+
+def rerank_chunks(
+    model: CrossEncoderProtocol,
+    query: str,
+    chunks: list[RetrievedChunk],
+    top_k: int,
+) -> list[RetrievedChunk]:
+    """Re-score chunks with a cross-encoder, sort descending, keep ``top_k``.
+
+    The cross-encoder score becomes each chunk's primary ``score``. The prior
+    fusion score and the new rerank rank are recorded in ``debug`` so the full
+    retrieve → fuse → rerank provenance survives.
+    """
+    if not chunks or top_k <= 0:
+        return []
+    pairs = [(query, c.payload.get("text", "")) for c in chunks]
+    scores = model.predict(pairs)
+    ranked = sorted(
+        zip(chunks, scores, strict=True),
+        key=lambda cs: float(cs[1]),
+        reverse=True,
+    )
+
+    out: list[RetrievedChunk] = []
+    for rank, (chunk, score) in enumerate(ranked[:top_k], start=1):
+        debug = dict(chunk.debug)
+        debug["fusion_score"] = chunk.score
+        debug["rerank_score"] = float(score)
+        debug["rerank_rank"] = rank
+        out.append(
+            RetrievedChunk(
+                point_id=chunk.point_id,
+                score=float(score),
+                payload=chunk.payload,
+                debug=debug,
+            )
+        )
+    return out
+
+
+class Reranker:
+    """Cross-encoder reranker backed by sentence-transformers.
+
+    A cross-encoder reads ``(query, chunk_text)`` jointly and outputs one
+    relevance score — far more accurate than bi-encoder dense retrieval, but
+    too slow to run corpus-wide, so it only re-scores retrieved candidates.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "BAAI/bge-reranker-base",
+        device: str = "cpu",
+    ) -> None:
+        from sentence_transformers import CrossEncoder  # lazy
+
+        logger.info("Loading reranker model %s on %s ...", model_name, device)
+        self.model: CrossEncoderProtocol = CrossEncoder(model_name, device=device)
+
+    def rerank(
+        self,
+        query: str,
+        chunks: list[RetrievedChunk],
+        top_k: int,
+    ) -> list[RetrievedChunk]:
+        return rerank_chunks(self.model, query, chunks, top_k)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -450,7 +531,7 @@ def _format_results_table(chunks: list[RetrievedChunk]) -> Table:
     return table
 
 
-def _build_hybrid_from_settings(
+def build_hybrid_retriever(
     settings: Settings,
     collection: str,
 ) -> HybridRetriever:
@@ -522,7 +603,7 @@ def main(
         collection = settings.qdrant.collection
     top_k = k or settings.retrieval.top_k
 
-    hybrid = _build_hybrid_from_settings(settings, collection)
+    hybrid = build_hybrid_retriever(settings, collection)
     if not skip_consistency_check:
         hybrid.verify_consistency()
 

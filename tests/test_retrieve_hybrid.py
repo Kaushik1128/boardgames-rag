@@ -331,7 +331,7 @@ class TestHybridSearch:
 
 @pytest.fixture
 def patched_cli_hybrid(monkeypatch):
-    """Patch _build_hybrid_from_settings to return an in-memory hybrid."""
+    """Patch build_hybrid_retriever to return an in-memory hybrid."""
     payloads = {
         "doc1": {
             "text": "catan settlement build resources",
@@ -347,7 +347,7 @@ def patched_cli_hybrid(monkeypatch):
     hybrid, _ = _make_hybrid(payloads)
     monkeypatch.setattr(
         retrieve_module,
-        "_build_hybrid_from_settings",
+        "build_hybrid_retriever",
         lambda settings, collection: hybrid,
     )
     return hybrid
@@ -415,7 +415,7 @@ def test_cli_skip_consistency_check(tmp_path, monkeypatch):
     hybrid.verify_consistency = tracking_verify  # type: ignore[method-assign]
     monkeypatch.setattr(
         retrieve_module,
-        "_build_hybrid_from_settings",
+        "build_hybrid_retriever",
         lambda settings, collection: hybrid,
     )
 

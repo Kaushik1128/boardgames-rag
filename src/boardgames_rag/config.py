@@ -66,6 +66,34 @@ class RetrievalConfig(BaseModel):
     fusion: FusionConfig = FusionConfig()
 
 
+class RerankConfig(BaseModel):
+    """Cross-encoder reranking settings."""
+
+    enabled: bool = True
+    model_name: str = "BAAI/bge-reranker-base"
+    device: str = "cpu"
+    # Number of chunks kept after reranking the retrieved candidates.
+    top_k: int = 5
+
+
+class GenerationConfig(BaseModel):
+    """LLM answer-generation settings.
+
+    `base_url` points at any OpenAI-compatible endpoint. Ollama exposes one at
+    /v1 locally; a hosted free-tier (Groq) can be swapped in later by changing
+    `base_url` + `backend` with no code change.
+    """
+
+    backend: Literal["ollama"] = "ollama"
+    base_url: str = "http://localhost:11434/v1"
+    model: str = "llama3.2:3b"
+    temperature: float = 0.1
+    max_tokens: int = 1024
+    timeout_seconds: float = 120.0
+    # Number of reranked chunks actually placed in the prompt.
+    max_context_chunks: int = 5
+
+
 class Settings(BaseSettings):
     """Application settings. Construct via `load_settings()`."""
 
@@ -82,6 +110,8 @@ class Settings(BaseSettings):
     chunking: ChunkingConfig = ChunkingConfig()
     ingest: IngestConfig = IngestConfig()
     retrieval: RetrievalConfig = RetrievalConfig()
+    rerank: RerankConfig = RerankConfig()
+    generation: GenerationConfig = GenerationConfig()
 
     # Free-tier API keys, populated from .env. Not used until week 4+.
     gemini_api_key: str | None = None
