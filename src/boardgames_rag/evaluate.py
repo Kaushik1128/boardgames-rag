@@ -180,6 +180,14 @@ def run_rag_over_testset(
 # Ragas scoring (network-bound — exercised in the real eval run, not unit tests)
 # ---------------------------------------------------------------------------
 
+# Default judge model per provider — used when --judge-provider is passed on
+# the CLI without an explicit --judge-model.
+_DEFAULT_JUDGE_MODELS = {
+    "ollama": "llama3.1:latest",
+    "groq": "llama-3.3-70b-versatile",
+    "gemini": "gemini-2.0-flash",
+}
+
 
 def build_judge(settings: Settings) -> Any:
     """Wrap the configured judge LLM (Ollama, Groq, or Gemini) as a Ragas LLM."""
@@ -399,6 +407,17 @@ def main(
         int | None,
         typer.Option("--limit", help="Evaluate only the first N questions."),
     ] = None,
+    judge_provider: Annotated[
+        str | None,
+        typer.Option(
+            "--judge-provider",
+            help="Override eval.judge_provider: ollama / groq / gemini.",
+        ),
+    ] = None,
+    judge_model: Annotated[
+        str | None,
+        typer.Option("--judge-model", help="Override eval.judge_model."),
+    ] = None,
     skip_consistency_check: Annotated[
         bool,
         typer.Option("--skip-consistency-check", help="Don't verify BM25 vs Qdrant."),
@@ -416,6 +435,22 @@ def main(
     if collection is None:
         collection = settings.qdrant.collection
     testset_path = testset or settings.eval.testset_path
+
+    # CLI overrides for the judge. The committed config default stays "ollama"
+    # so the repo is $0-to-run; --judge-provider opts a single run into a
+    # (paid) hosted judge without touching the committed config.
+    if judge_provider is not None:
+        if judge_provider not in _DEFAULT_JUDGE_MODELS:
+            raise typer.BadParameter(
+                f"--judge-provider must be one of "
+                f"{sorted(_DEFAULT_JUDGE_MODELS)}, got {judge_provider!r}"
+            )
+        settings.eval.judge_provider = judge_provider  # type: ignore[assignment]
+        # Pick this provider's default model unless one was given explicitly.
+        if judge_model is None:
+            settings.eval.judge_model = _DEFAULT_JUDGE_MODELS[judge_provider]
+    if judge_model is not None:
+        settings.eval.judge_model = judge_model
 
     samples = load_testset(testset_path)
     if limit is not None:

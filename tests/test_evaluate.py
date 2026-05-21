@@ -350,6 +350,26 @@ def _fake_evaluate_samples(
     ]
 
 
+def _patch_cli_collaborators(monkeypatch, *, build_judge_fn=None) -> None:
+    """Patch every network-bound collaborator the evaluate CLI touches."""
+    monkeypatch.setattr(retrieve_module, "build_hybrid_retriever", lambda s, c: FakeHybrid())
+    monkeypatch.setattr(retrieve_module, "Reranker", lambda model_name, device: FakeReranker())
+    monkeypatch.setattr(evaluate_module, "OllamaGenerator", lambda **kwargs: FakeGenerator())
+    monkeypatch.setattr(
+        evaluate_module,
+        "build_judge",
+        build_judge_fn or (lambda settings: object()),
+    )
+    monkeypatch.setattr(evaluate_module, "build_eval_embeddings", lambda settings: object())
+    monkeypatch.setattr(evaluate_module, "evaluate_samples", _fake_evaluate_samples)
+
+
+def _cli_app() -> typer.Typer:
+    app = typer.Typer()
+    app.command()(evaluate_module.main)
+    return app
+
+
 def test_cli_runs_both_ablations(tmp_path, monkeypatch):
     testset = tmp_path / "ts.jsonl"
     _write_testset(testset, n=2)
@@ -358,18 +378,10 @@ def test_cli_runs_both_ablations(tmp_path, monkeypatch):
         f"eval:\n  results_dir: {(tmp_path / 'results').as_posix()}\n",
         encoding="utf-8",
     )
+    _patch_cli_collaborators(monkeypatch)
 
-    monkeypatch.setattr(retrieve_module, "build_hybrid_retriever", lambda s, c: FakeHybrid())
-    monkeypatch.setattr(retrieve_module, "Reranker", lambda model_name, device: FakeReranker())
-    monkeypatch.setattr(evaluate_module, "OllamaGenerator", lambda **kwargs: FakeGenerator())
-    monkeypatch.setattr(evaluate_module, "build_judge", lambda settings: object())
-    monkeypatch.setattr(evaluate_module, "build_eval_embeddings", lambda settings: object())
-    monkeypatch.setattr(evaluate_module, "evaluate_samples", _fake_evaluate_samples)
-
-    app = typer.Typer()
-    app.command()(evaluate_module.main)
     result = CliRunner().invoke(
-        app,
+        _cli_app(),
         [
             "--testset",
             str(testset),
@@ -385,3 +397,47 @@ def test_cli_runs_both_ablations(tmp_path, monkeypatch):
     assert len(written) == 2
     labels = {json.loads(p.read_text(encoding="utf-8"))["label"] for p in written}
     assert labels == {"rerank-on", "rerank-off"}
+
+
+def test_cli_rejects_unknown_judge_provider(tmp_path):
+    testset = tmp_path / "ts.jsonl"
+    _write_testset(testset, n=1)
+    result = CliRunner().invoke(
+        _cli_app(),
+        ["--testset", str(testset), "--judge-provider", "bogus"],
+    )
+    assert result.exit_code != 0
+
+
+def test_cli_judge_provider_override_picks_default_model(tmp_path, monkeypatch):
+    testset = tmp_path / "ts.jsonl"
+    _write_testset(testset, n=1)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"eval:\n  results_dir: {(tmp_path / 'results').as_posix()}\n",
+        encoding="utf-8",
+    )
+    captured: dict[str, str] = {}
+
+    def capturing_build_judge(settings):
+        captured["provider"] = settings.eval.judge_provider
+        captured["model"] = settings.eval.judge_model
+        return object()
+
+    _patch_cli_collaborators(monkeypatch, build_judge_fn=capturing_build_judge)
+
+    result = CliRunner().invoke(
+        _cli_app(),
+        [
+            "--testset",
+            str(testset),
+            "--config",
+            str(config),
+            "--judge-provider",
+            "gemini",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["provider"] == "gemini"
+    # --judge-model was not given → the provider's default model is selected.
+    assert captured["model"] == "gemini-2.0-flash"
