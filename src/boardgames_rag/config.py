@@ -114,6 +114,19 @@ class EvalConfig(BaseModel):
     max_retries: int = 5
 
 
+class AgentConfig(BaseModel):
+    """Agentic loop (LangGraph) settings — week 5."""
+
+    # Retrieval attempts (initial + reformulated retries) before the agent
+    # falls back to web search. 2 = initial try + one critic-driven retry.
+    max_retrieval_attempts: int = 2
+    # When true, exhausting the attempts triggers a DuckDuckGo web search;
+    # when false the agent answers from whatever context it has.
+    web_fallback_enabled: bool = True
+    # Number of DuckDuckGo results to pull on a web fallback.
+    web_results: int = 5
+
+
 class Settings(BaseSettings):
     """Application settings. Construct via `load_settings()`."""
 
@@ -133,6 +146,7 @@ class Settings(BaseSettings):
     rerank: RerankConfig = RerankConfig()
     generation: GenerationConfig = GenerationConfig()
     eval: EvalConfig = EvalConfig()
+    agent: AgentConfig = AgentConfig()
 
     # Free-tier API keys, populated from .env. Not used until week 4+.
     gemini_api_key: str | None = None

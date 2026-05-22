@@ -93,3 +93,11 @@ eval:
   max_workers: 2
   timeout_seconds: 180
   max_retries: 5
+
+agent:
+  # Retrieval attempts (initial + reformulated retries) before the agentic
+  # loop falls back to web search. 2 = initial try + one critic-driven retry.
+  max_retrieval_attempts: 2
+  # When true, exhausting the attempts triggers a DuckDuckGo web search.
+  web_fallback_enabled: true
+  web_results: 5

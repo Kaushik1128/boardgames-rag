@@ -36,6 +36,8 @@ dependencies = [
     "pillow>=12.2.0",
     "langchain-groq>=1.1.2",
     "langchain-ollama>=1.1.0",
+    "langgraph>=1.2.0",
+    "ddgs>=9.14.4",
 ]
 
 [dependency-groups]
