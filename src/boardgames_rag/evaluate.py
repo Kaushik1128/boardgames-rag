@@ -52,6 +52,7 @@ __all__ = [
     "evaluate_samples",
     "load_testset",
     "main",
+    "run_agent_over_testset",
     "run_rag_over_testset",
     "save_report",
 ]
@@ -171,6 +172,43 @@ def run_rag_over_testset(
                 difficulty=sample.difficulty,
                 answer=rag.answer,
                 contexts=[c.payload.get("text", "") for c in rag.sources],
+            )
+        )
+    return results
+
+
+def run_agent_over_testset(
+    samples: list[EvalSample],
+    *,
+    graph: Any,
+    max_attempts: int,
+    web_fallback_enabled: bool,
+) -> list[EvalSample]:
+    """Run the LangGraph agent for each question. Returns filled EvalSamples.
+
+    The analogue of run_rag_over_testset for the agentic pipeline — lets the
+    harness score the agent (planner / critic / web fallback) and compare it
+    to the plain linear pipeline.
+    """
+    from boardgames_rag.agent import run_agent
+
+    results: list[EvalSample] = []
+    for sample in samples:
+        agent_result = run_agent(
+            sample.question,
+            graph=graph,
+            max_attempts=max_attempts,
+            web_fallback_enabled=web_fallback_enabled,
+        )
+        results.append(
+            EvalSample(
+                id=sample.id,
+                game=sample.game,
+                question=sample.question,
+                reference=sample.reference,
+                difficulty=sample.difficulty,
+                answer=agent_result.answer,
+                contexts=[c.payload.get("text", "") for c in agent_result.sources],
             )
         )
     return results
@@ -367,12 +405,13 @@ def save_report(report: EvalReport, results_dir: Path) -> Path:
 
 
 def _print_comparison(reports: list[EvalReport]) -> None:
-    table = Table(title="Ragas evaluation — rerank ablation")
+    title = "Ragas evaluation — " + " vs ".join(r.label for r in reports)
+    table = Table(title=title)
     table.add_column("Metric")
     for report in reports:
         table.add_column(report.label, justify="right")
     if len(reports) == 2:
-        table.add_column("delta (on - off)", justify="right")
+        table.add_column(f"delta ({reports[0].label} - {reports[1].label})", justify="right")
 
     metric_names = list(reports[0].aggregates.keys()) if reports else []
     for name in metric_names:
@@ -407,6 +446,13 @@ def main(
         int | None,
         typer.Option("--limit", help="Evaluate only the first N questions."),
     ] = None,
+    pipeline: Annotated[
+        str,
+        typer.Option(
+            "--pipeline",
+            help="'rerank-ablation' (rerank on vs off) or 'agent' (agent vs linear).",
+        ),
+    ] = "rerank-ablation",
     judge_provider: Annotated[
         str | None,
         typer.Option(
@@ -427,10 +473,14 @@ def main(
         typer.Option("--log-level", help="DEBUG / INFO / WARNING / ERROR."),
     ] = "WARNING",
 ) -> None:
-    """Evaluate the RAG pipeline with Ragas, comparing rerank on vs off."""
+    """Evaluate the RAG pipeline with Ragas (rerank ablation, or agent vs linear)."""
     from boardgames_rag.retrieve import Reranker, build_hybrid_retriever
 
     setup_logging(level=getattr(logging, log_level.upper(), logging.WARNING))
+    if pipeline not in ("rerank-ablation", "agent"):
+        raise typer.BadParameter(
+            f"--pipeline must be 'rerank-ablation' or 'agent', got {pipeline!r}"
+        )
     settings = load_settings(config_path)
     if collection is None:
         collection = settings.qdrant.collection
@@ -471,18 +521,69 @@ def main(
     judge = build_judge(settings)
     embeddings = build_eval_embeddings(settings)
 
+    # Build the evaluation arms based on --pipeline.
+    if pipeline == "agent":
+        from boardgames_rag.agent import build_agent_graph
+
+        graph = build_agent_graph(
+            llm=generator,
+            retriever=hybrid,
+            reranker=reranker,
+            retrieve_k=settings.retrieval.k_per_retriever,
+            rerank_top_k=settings.rerank.top_k,
+            web_results=settings.agent.web_results,
+        )
+        arms: list[tuple[str, Any]] = [
+            (
+                "agent",
+                lambda: run_agent_over_testset(
+                    samples,
+                    graph=graph,
+                    max_attempts=settings.agent.max_retrieval_attempts,
+                    web_fallback_enabled=settings.agent.web_fallback_enabled,
+                ),
+            ),
+            (
+                "linear",
+                lambda: run_rag_over_testset(
+                    samples,
+                    retriever=hybrid,
+                    generator=generator,
+                    reranker=reranker,
+                    settings=settings,
+                ),
+            ),
+        ]
+    else:
+        arms = [
+            (
+                "rerank-on",
+                lambda: run_rag_over_testset(
+                    samples,
+                    retriever=hybrid,
+                    generator=generator,
+                    reranker=reranker,
+                    settings=settings,
+                ),
+            ),
+            (
+                "rerank-off",
+                lambda: run_rag_over_testset(
+                    samples,
+                    retriever=hybrid,
+                    generator=generator,
+                    reranker=None,
+                    settings=settings,
+                ),
+            ),
+        ]
+
     reports: list[EvalReport] = []
-    for label, active_reranker in (("rerank-on", reranker), ("rerank-off", None)):
+    for label, run_fn in arms:
         console.print(
             f"\n[bold]{label}[/bold]: running the pipeline over {len(samples)} questions ..."
         )
-        run_samples = run_rag_over_testset(
-            samples,
-            retriever=hybrid,
-            generator=generator,
-            reranker=active_reranker,
-            settings=settings,
-        )
+        run_samples = run_fn()
         console.print(
             f"  scoring with Ragas + {settings.eval.judge_provider}:{settings.eval.judge_model} ..."
         )

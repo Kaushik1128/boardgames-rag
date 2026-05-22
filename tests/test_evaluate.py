@@ -24,6 +24,7 @@ from boardgames_rag.evaluate import (
     aggregate_scores,
     build_judge,
     load_testset,
+    run_agent_over_testset,
     run_rag_over_testset,
     save_report,
     score_coverage,
@@ -65,6 +66,22 @@ class FakeGenerator:
 
     def generate(self, messages: list[dict[str, str]]) -> str:
         return self.response
+
+
+class FakeGraph:
+    """Stand-in for a compiled LangGraph agent — run_agent only needs .invoke."""
+
+    def __init__(self, answer: str = "agent answer") -> None:
+        self.answer = answer
+
+    def invoke(self, state: dict) -> dict:
+        return {
+            **state,
+            "answer": self.answer,
+            "chunks": [_chunk("agent context")],
+            "used_web": False,
+            "attempts": 1,
+        }
 
 
 def _write_testset(path, n: int = 2) -> None:
@@ -193,6 +210,36 @@ class TestRunRagOverTestset:
             settings=Settings(),
         )
         assert run[0].answer is not None
+
+
+# ---------------------------------------------------------------------------
+# run_agent_over_testset
+# ---------------------------------------------------------------------------
+
+
+class TestRunAgentOverTestset:
+    def test_fills_answer_and_contexts(self, tmp_path):
+        path = tmp_path / "ts.jsonl"
+        _write_testset(path, n=2)
+        samples = load_testset(path)
+        run = run_agent_over_testset(
+            samples,
+            graph=FakeGraph(answer="the agent answer"),
+            max_attempts=2,
+            web_fallback_enabled=True,
+        )
+        assert len(run) == 2
+        assert all(r.answer == "the agent answer" for r in run)
+        assert all(r.contexts for r in run)
+
+    def test_does_not_mutate_input_samples(self, tmp_path):
+        path = tmp_path / "ts.jsonl"
+        _write_testset(path, n=1)
+        samples = load_testset(path)
+        run_agent_over_testset(
+            samples, graph=FakeGraph(), max_attempts=2, web_fallback_enabled=True
+        )
+        assert samples[0].answer is None
 
 
 # ---------------------------------------------------------------------------
@@ -441,3 +488,39 @@ def test_cli_judge_provider_override_picks_default_model(tmp_path, monkeypatch):
     assert captured["provider"] == "gemini"
     # --judge-model was not given → the provider's default model is selected.
     assert captured["model"] == "gemini-2.5-flash"
+
+
+def test_cli_pipeline_agent(tmp_path, monkeypatch):
+    testset = tmp_path / "ts.jsonl"
+    _write_testset(testset, n=2)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"eval:\n  results_dir: {(tmp_path / 'results').as_posix()}\n",
+        encoding="utf-8",
+    )
+    _patch_cli_collaborators(monkeypatch)
+
+    result = CliRunner().invoke(
+        _cli_app(),
+        [
+            "--testset",
+            str(testset),
+            "--collection",
+            "boardgames",
+            "--config",
+            str(config),
+            "--pipeline",
+            "agent",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    written = list((tmp_path / "results").glob("*.json"))
+    assert len(written) == 2
+    labels = {json.loads(p.read_text(encoding="utf-8"))["label"] for p in written}
+    assert labels == {"agent", "linear"}
+
+
+def test_cli_rejects_unknown_pipeline():
+    result = CliRunner().invoke(_cli_app(), ["--pipeline", "bogus"])
+    assert result.exit_code != 0
