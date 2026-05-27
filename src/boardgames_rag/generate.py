@@ -24,12 +24,16 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
-from boardgames_rag.config import load_settings
+from boardgames_rag.config import Settings, load_settings
 from boardgames_rag.retrieve import RetrievedChunk
 from boardgames_rag.utils import setup_logging
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+# Groq's OpenAI-compatible endpoint. Used when generation.backend == "groq".
+_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 
 # Fixed refusal string. The generator is instructed to emit this verbatim when
@@ -53,6 +57,7 @@ __all__ = [
     "OllamaGenerator",
     "RagAnswer",
     "answer",
+    "build_generator",
     "build_prompt",
     "format_context",
     "main",
@@ -159,6 +164,43 @@ class OllamaGenerator:
             ) from exc
         content = response.choices[0].message.content
         return (content or "").strip()
+
+
+def build_generator(settings: Settings) -> OllamaGenerator:
+    """Construct the generator LLM from settings.
+
+    Routes by ``generation.backend``:
+
+      - "ollama" — local Ollama at ``generation.base_url``, model
+        ``generation.model``, with the api_key Ollama ignores.
+      - "groq"   — Groq's OpenAI-compatible endpoint, model
+        ``generation.groq_model``, with ``GROQ_API_KEY`` from .env.
+
+    The returned object is an ``OllamaGenerator`` regardless of backend —
+    the class is just an OpenAI-compatible chat client and the name is kept
+    for backwards compatibility with the week-3 wiring.
+    """
+    if settings.generation.backend == "groq":
+        if not settings.groq_api_key:
+            raise RuntimeError(
+                "GROQ_API_KEY is not set. Add it to .env to use the Groq "
+                "generator. Get a free key at https://console.groq.com/keys."
+            )
+        return OllamaGenerator(
+            model=settings.generation.groq_model,
+            base_url=_GROQ_BASE_URL,
+            api_key=settings.groq_api_key,
+            temperature=settings.generation.temperature,
+            max_tokens=settings.generation.max_tokens,
+            timeout_seconds=settings.generation.timeout_seconds,
+        )
+    return OllamaGenerator(
+        model=settings.generation.model,
+        base_url=settings.generation.base_url,
+        temperature=settings.generation.temperature,
+        max_tokens=settings.generation.max_tokens,
+        timeout_seconds=settings.generation.timeout_seconds,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -286,13 +328,7 @@ def main(
             device=settings.rerank.device,
         )
 
-    generator = OllamaGenerator(
-        model=settings.generation.model,
-        base_url=settings.generation.base_url,
-        temperature=settings.generation.temperature,
-        max_tokens=settings.generation.max_tokens,
-        timeout_seconds=settings.generation.timeout_seconds,
-    )
+    generator = build_generator(settings)
 
     try:
         result = answer(

@@ -401,7 +401,7 @@ def _patch_cli_collaborators(monkeypatch, *, build_judge_fn=None) -> None:
     """Patch every network-bound collaborator the evaluate CLI touches."""
     monkeypatch.setattr(retrieve_module, "build_hybrid_retriever", lambda s, c: FakeHybrid())
     monkeypatch.setattr(retrieve_module, "Reranker", lambda model_name, device: FakeReranker())
-    monkeypatch.setattr(evaluate_module, "OllamaGenerator", lambda **kwargs: FakeGenerator())
+    monkeypatch.setattr(evaluate_module, "build_generator", lambda settings: FakeGenerator())
     monkeypatch.setattr(
         evaluate_module,
         "build_judge",
@@ -524,3 +524,50 @@ def test_cli_pipeline_agent(tmp_path, monkeypatch):
 def test_cli_rejects_unknown_pipeline():
     result = CliRunner().invoke(_cli_app(), ["--pipeline", "bogus"])
     assert result.exit_code != 0
+
+
+def test_cli_rejects_unknown_llm_provider(tmp_path):
+    testset = tmp_path / "ts.jsonl"
+    _write_testset(testset, n=1)
+    result = CliRunner().invoke(
+        _cli_app(),
+        ["--testset", str(testset), "--llm-provider", "bogus"],
+    )
+    assert result.exit_code != 0
+
+
+def test_cli_llm_provider_override_flips_backend(tmp_path, monkeypatch):
+    """--llm-provider groq must reach build_generator via settings.generation.backend."""
+    testset = tmp_path / "ts.jsonl"
+    _write_testset(testset, n=1)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"eval:\n  results_dir: {(tmp_path / 'results').as_posix()}\n",
+        encoding="utf-8",
+    )
+    captured: dict[str, str] = {}
+
+    def capturing_build_generator(settings):
+        captured["backend"] = settings.generation.backend
+        return FakeGenerator()
+
+    monkeypatch.setattr(retrieve_module, "build_hybrid_retriever", lambda s, c: FakeHybrid())
+    monkeypatch.setattr(retrieve_module, "Reranker", lambda model_name, device: FakeReranker())
+    monkeypatch.setattr(evaluate_module, "build_generator", capturing_build_generator)
+    monkeypatch.setattr(evaluate_module, "build_judge", lambda settings: object())
+    monkeypatch.setattr(evaluate_module, "build_eval_embeddings", lambda settings: object())
+    monkeypatch.setattr(evaluate_module, "evaluate_samples", _fake_evaluate_samples)
+
+    result = CliRunner().invoke(
+        _cli_app(),
+        [
+            "--testset",
+            str(testset),
+            "--config",
+            str(config),
+            "--llm-provider",
+            "groq",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["backend"] == "groq"

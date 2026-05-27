@@ -79,14 +79,22 @@ class RerankConfig(BaseModel):
 class GenerationConfig(BaseModel):
     """LLM answer-generation settings.
 
-    `base_url` points at any OpenAI-compatible endpoint. Ollama exposes one at
-    /v1 locally; a hosted free-tier (Groq) can be swapped in later by changing
-    `base_url` + `backend` with no code change.
+    Two backends are supported, both via OpenAI-compatible chat completions:
+
+      - "ollama" — local Ollama at ``base_url`` (default $0 dev setup).
+      - "groq"   — hosted Groq free-tier; ``base_url`` is ignored and the
+        Groq endpoint is used. Requires ``GROQ_API_KEY`` in ``.env``.
+
+    Both pick their model from the matching field (``model`` / ``groq_model``)
+    so a per-run ``--llm-provider`` flip needs no other config change.
     """
 
-    backend: Literal["ollama"] = "ollama"
+    backend: Literal["ollama", "groq"] = "ollama"
     base_url: str = "http://localhost:11434/v1"
     model: str = "llama3.2:3b"
+    # Model used when backend == "groq". Free-tier 70B model — large enough
+    # to fix the week-5 weak-critic / weak-generator regression.
+    groq_model: str = "llama-3.3-70b-versatile"
     temperature: float = 0.1
     max_tokens: int = 1024
     timeout_seconds: float = 120.0
@@ -122,7 +130,12 @@ class AgentConfig(BaseModel):
     max_retrieval_attempts: int = 2
     # When true, exhausting the attempts triggers a DuckDuckGo web search;
     # when false the agent answers from whatever context it has.
-    web_fallback_enabled: bool = True
+    #
+    # Default is False after week-5 measurement: thin web snippets fed to the
+    # small local generator hallucinated answers and the off-domain web text
+    # tanked context-recall. Opt back in per-run via config or by flipping the
+    # field on the loaded settings if a deployment wants the fallback.
+    web_fallback_enabled: bool = False
     # Number of DuckDuckGo results to pull on a web fallback.
     web_results: int = 5
 

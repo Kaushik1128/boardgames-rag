@@ -380,7 +380,7 @@ def main(
     ] = "WARNING",
 ) -> None:
     """Answer a question with the agentic RAG loop."""
-    from boardgames_rag.generate import OllamaGenerator
+    from boardgames_rag.generate import build_generator
     from boardgames_rag.retrieve import Reranker, build_hybrid_retriever
 
     setup_logging(level=getattr(logging, log_level.upper(), logging.WARNING))
@@ -392,13 +392,7 @@ def main(
     if not skip_consistency_check:
         hybrid.verify_consistency()
     reranker = Reranker(model_name=settings.rerank.model_name, device=settings.rerank.device)
-    llm = OllamaGenerator(
-        model=settings.generation.model,
-        base_url=settings.generation.base_url,
-        temperature=settings.generation.temperature,
-        max_tokens=settings.generation.max_tokens,
-        timeout_seconds=settings.generation.timeout_seconds,
-    )
+    llm = build_generator(settings)
     graph = build_agent_graph(
         llm=llm,
         retriever=hybrid,

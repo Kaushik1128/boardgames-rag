@@ -35,7 +35,7 @@ from rich.console import Console
 from rich.table import Table
 
 from boardgames_rag.config import Settings, load_settings
-from boardgames_rag.generate import OllamaGenerator, answer
+from boardgames_rag.generate import answer, build_generator
 from boardgames_rag.utils import setup_logging
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -464,6 +464,16 @@ def main(
         str | None,
         typer.Option("--judge-model", help="Override eval.judge_model."),
     ] = None,
+    llm_provider: Annotated[
+        str | None,
+        typer.Option(
+            "--llm-provider",
+            help=(
+                "Override generation.backend for the pipeline LLM (planner / "
+                "critic / generator): ollama or groq."
+            ),
+        ),
+    ] = None,
     skip_consistency_check: Annotated[
         bool,
         typer.Option("--skip-consistency-check", help="Don't verify BM25 vs Qdrant."),
@@ -502,6 +512,16 @@ def main(
     if judge_model is not None:
         settings.eval.judge_model = judge_model
 
+    # CLI override for the pipeline LLM (planner / critic / generator). Lets
+    # a single eval run flip from the $0 local Ollama default to Groq's free
+    # tier without editing the committed config.
+    if llm_provider is not None:
+        if llm_provider not in ("ollama", "groq"):
+            raise typer.BadParameter(
+                f"--llm-provider must be 'ollama' or 'groq', got {llm_provider!r}"
+            )
+        settings.generation.backend = llm_provider  # type: ignore[assignment]
+
     samples = load_testset(testset_path)
     if limit is not None:
         samples = samples[:limit]
@@ -511,12 +531,10 @@ def main(
     if not skip_consistency_check:
         hybrid.verify_consistency()
     reranker = Reranker(model_name=settings.rerank.model_name, device=settings.rerank.device)
-    generator = OllamaGenerator(
-        model=settings.generation.model,
-        base_url=settings.generation.base_url,
-        temperature=settings.generation.temperature,
-        max_tokens=settings.generation.max_tokens,
-        timeout_seconds=settings.generation.timeout_seconds,
+    generator = build_generator(settings)
+    console.print(
+        f"  pipeline LLM: {settings.generation.backend}:"
+        f"{settings.generation.groq_model if settings.generation.backend == 'groq' else settings.generation.model}"
     )
     judge = build_judge(settings)
     embeddings = build_eval_embeddings(settings)

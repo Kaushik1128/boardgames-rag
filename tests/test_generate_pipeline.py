@@ -15,7 +15,8 @@ from typer.testing import CliRunner
 
 import boardgames_rag.generate as generate_module
 import boardgames_rag.retrieve as retrieve_module
-from boardgames_rag.generate import NO_ANSWER, OllamaGenerator, RagAnswer, answer
+from boardgames_rag.config import Settings
+from boardgames_rag.generate import NO_ANSWER, OllamaGenerator, RagAnswer, answer, build_generator
 from boardgames_rag.retrieve import RetrievedChunk
 
 # ---------------------------------------------------------------------------
@@ -226,6 +227,53 @@ class TestOllamaGenerator:
 
 
 # ---------------------------------------------------------------------------
+# build_generator
+# ---------------------------------------------------------------------------
+
+
+class _FakeOpenAICtor:
+    """Captures kwargs the OpenAI client is constructed with."""
+
+    def __init__(self) -> None:
+        self.kwargs: dict | None = None
+
+    def __call__(self, **kwargs):
+        self.kwargs = kwargs
+        return FakeOpenAIClient()
+
+
+class TestBuildGenerator:
+    def test_ollama_backend_uses_local_base_url_and_model(self, monkeypatch):
+        fake = _FakeOpenAICtor()
+        monkeypatch.setattr("openai.OpenAI", fake)
+        settings = Settings()  # defaults: ollama backend
+        gen = build_generator(settings)
+        assert isinstance(gen, OllamaGenerator)
+        assert gen.model == settings.generation.model
+        assert fake.kwargs is not None
+        assert fake.kwargs["base_url"] == settings.generation.base_url
+
+    def test_groq_backend_uses_groq_endpoint_and_groq_model(self, monkeypatch):
+        fake = _FakeOpenAICtor()
+        monkeypatch.setattr("openai.OpenAI", fake)
+        settings = Settings()
+        settings.generation.backend = "groq"
+        settings.groq_api_key = "test-key"
+        gen = build_generator(settings)
+        assert gen.model == settings.generation.groq_model
+        assert fake.kwargs is not None
+        assert fake.kwargs["base_url"] == "https://api.groq.com/openai/v1"
+        assert fake.kwargs["api_key"] == "test-key"
+
+    def test_groq_backend_without_key_raises(self):
+        settings = Settings()
+        settings.generation.backend = "groq"
+        settings.groq_api_key = None
+        with pytest.raises(RuntimeError, match="GROQ_API_KEY"):
+            build_generator(settings)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -244,8 +292,8 @@ def test_cli_smoke_no_rerank(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         generate_module,
-        "OllamaGenerator",
-        lambda **kwargs: FakeGenerator("CLI answer [1]"),
+        "build_generator",
+        lambda settings: FakeGenerator("CLI answer [1]"),
     )
 
     result = CliRunner().invoke(
@@ -277,8 +325,8 @@ def test_cli_smoke_with_rerank(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         generate_module,
-        "OllamaGenerator",
-        lambda **kwargs: FakeGenerator("reranked CLI answer"),
+        "build_generator",
+        lambda settings: FakeGenerator("reranked CLI answer"),
     )
 
     result = CliRunner().invoke(
@@ -306,7 +354,7 @@ def test_cli_handles_generator_error(tmp_path, monkeypatch):
         "build_hybrid_retriever",
         lambda settings, collection: FakeRetriever(_chunks(2)),
     )
-    monkeypatch.setattr(generate_module, "OllamaGenerator", lambda **kwargs: FailingGenerator())
+    monkeypatch.setattr(generate_module, "build_generator", lambda settings: FailingGenerator())
 
     result = CliRunner().invoke(
         _build_cli_app(),

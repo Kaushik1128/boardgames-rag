@@ -334,7 +334,7 @@ def test_cli_smoke(tmp_path, monkeypatch):
     monkeypatch.setattr(retrieve_module, "build_hybrid_retriever", lambda s, c: FakeRetriever())
     monkeypatch.setattr(retrieve_module, "Reranker", lambda model_name, device: FakeReranker())
     monkeypatch.setattr(
-        generate_module, "OllamaGenerator", lambda **kwargs: FakeLLM(answer="CLI answer")
+        generate_module, "build_generator", lambda settings: FakeLLM(answer="CLI answer")
     )
 
     app = typer.Typer()
@@ -361,7 +361,7 @@ def test_cli_handles_runtime_error(tmp_path, monkeypatch):
 
     monkeypatch.setattr(retrieve_module, "build_hybrid_retriever", lambda s, c: FakeRetriever())
     monkeypatch.setattr(retrieve_module, "Reranker", lambda model_name, device: FakeReranker())
-    monkeypatch.setattr(generate_module, "OllamaGenerator", lambda **kwargs: FailingLLM())
+    monkeypatch.setattr(generate_module, "build_generator", lambda settings: FailingLLM())
 
     app = typer.Typer()
     app.command()(agent_module.main)

@@ -62,11 +62,16 @@ rerank:
   top_k: 5
 
 generation:
-  # "ollama" for now. Any OpenAI-compatible endpoint works via base_url.
+  # "ollama" or "groq". Both speak the OpenAI chat-completions protocol.
+  # Override per-run on the eval CLI with --llm-provider groq.
   backend: ollama
   # Ollama's OpenAI-compatible API. Run `ollama pull llama3.2:3b` first.
   base_url: http://localhost:11434/v1
+  # Model used when backend == "ollama".
   model: llama3.2:3b
+  # Model used when backend == "groq". Free-tier 70B — picked to fix the
+  # week-5 weak-critic / weak-generator regression for the agent eval.
+  groq_model: llama-3.3-70b-versatile
   # Low temperature — rules answers should be deterministic, not creative.
   temperature: 0.1
   max_tokens: 1024
@@ -99,5 +104,8 @@ agent:
   # loop falls back to web search. 2 = initial try + one critic-driven retry.
   max_retrieval_attempts: 2
   # When true, exhausting the attempts triggers a DuckDuckGo web search.
-  web_fallback_enabled: true
+  # Off by default — week-5 eval showed thin web snippets cause the small
+  # generator to hallucinate and crash context-recall; rulebooks-only is
+  # safer. Re-enable here (or via overrides) for deployments that want it.
+  web_fallback_enabled: false
   web_results: 5
