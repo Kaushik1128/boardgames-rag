@@ -23,14 +23,14 @@ as a deeply-numbered plain-text document.
 | 2 | Done | Hybrid retrieval — BM25 + dense, fused with Reciprocal Rank Fusion. |
 | 3 | Done | Local cross-encoder reranking (`bge-reranker-base`); grounded answer generation (Ollama). |
 | 4 | Done | Ragas evaluation — faithfulness, answer relevancy, context precision & recall; rerank on/off ablation. |
-| 5 | Planned | Agentic loop in LangGraph — planner / retriever / critic / DuckDuckGo fallback. |
-| 6 | Planned | FastAPI service exposing query + eval endpoints. |
-| 7 | Planned | Deploy on HuggingFace Spaces (free tier). |
+| 5 | Done | Agentic loop in LangGraph — planner / retriever / critic, with reformulated-query retry. |
+| 6 | Planned | FastAPI service exposing the agent query endpoint. |
+| 7 | Planned | Deploy on HuggingFace Spaces (free tier) — agent LLM switches to Groq for hosted inference. |
 
-## Status — weeks 1-4 complete
+## Status — weeks 1-5 complete
 
-The pipeline runs end-to-end: **ingest → hybrid retrieve → rerank →
-grounded generate**, with a **Ragas evaluation harness** on top.
+The pipeline runs end-to-end as both a **linear** RAG path and an
+**agentic** path that share retrieval and generation code:
 
 - **Ingest** — parses PDFs (`pymupdf4llm`) and plain-text rules, chunks them
   with heading-aware ~512-token windows + 50-token overlap, embeds with
@@ -42,20 +42,26 @@ grounded generate**, with a **Ragas evaluation harness** on top.
 - **Generate** — retrieve → cross-encoder rerank → strict-grounded answer
   from a local Ollama model, with citations. Refuses rather than hallucinate
   when the rulebooks don't cover the question.
-- **Evaluate** — runs the pipeline over a curated 30-question test set and
-  scores it with Ragas, comparing rerank-on vs rerank-off.
+- **Agent** — a LangGraph state machine: plan → retrieve → critique →
+  (sufficient ⇒ generate, otherwise loop with a reformulated query, bounded
+  by a max-attempts cap). Same retrieval + generation primitives as the
+  linear path, with an LLM critic gating the loop.
+- **Evaluate** — runs either pipeline over a curated 30-question test set
+  and scores with Ragas; ablations supported (rerank on/off, agent vs
+  linear). The pipeline LLM is config-pluggable between local Ollama and
+  Groq via `--llm-provider`.
 
-Current corpus: **10 rulebooks → 1,014 indexed chunks**. Test suite: **167
+Current corpus: **10 rulebooks → 1,014 indexed chunks**. Test suite: **202
 tests passing**.
 
-Weeks 5-7 (agentic loop, FastAPI service, HuggingFace deploy) are next.
+Weeks 6-7 (FastAPI service, HuggingFace deploy) are next.
 
 ## Evaluation results
 
-Week 4's headline experiment: does the cross-encoder reranker earn its cost?
+Two measured experiments, both judged by `gemini-2.5-flash` against the same
+30-question test set (3 per game), 100% score coverage in every reported run.
 
-Judge: `gemini-2.5-flash` · 30-question test set (3 per game) · 100% / 99%
-score coverage.
+### Week 4 — does the cross-encoder reranker earn its cost?
 
 | Metric | rerank-on | rerank-off | Δ (on − off) |
 |--------|-----------|------------|--------------|
@@ -64,14 +70,37 @@ score coverage.
 | Context precision | 0.48 | 0.41 | +0.07 |
 | Context recall | 0.63 | 0.54 | +0.09 |
 
-**Reranking improves every metric — it stays in the pipeline.** Faithfulness
-is strong (answers are well-grounded; little hallucination); context
-precision and recall are the current weak point and the main target for
-week 5's agentic retrieval.
+**Reranking improves every metric — it stays in the pipeline.**
 
-The judge is configurable (`--judge-provider`). An earlier run with a weaker
-local judge gave a noisier, partly-misleading verdict — a reminder that, in
-LLM-as-judge evaluation, judge quality materially affects the conclusion.
+### Week 5 — does the agentic loop beat the linear pipeline?
+
+| Metric | agent | linear | Δ (agent − linear) |
+|--------|-------|--------|--------------------|
+| Faithfulness | 0.946 | 0.944 | +0.003 |
+| Answer relevancy | 0.745 | 0.746 | −0.001 |
+| Context precision | 0.479 | 0.509 | −0.030 |
+| Context recall | 0.592 | 0.644 | −0.053 |
+
+**Agent matches linear on the output-quality metrics** (faithfulness and
+answer relevancy are statistical ties) with a small residual gap on the
+retrieval-side metrics. Both pipelines remain shipped and configurable; the
+agent's critic + retry loop is most valuable as a defensive structure for
+ambiguous queries — its retrieval residue should narrow further once the
+agent's LLM is a larger hosted model at deploy time.
+
+A first agent run (with a DuckDuckGo web fallback enabled) regressed on
+faithfulness by −0.16; per-question diagnosis showed the small local critic
+over-flagged good context as insufficient, the web fallback then fed thin
+off-domain snippets to the generator, and grounding collapsed. Disabling the
+fallback (now the default) and answering from rulebook context only restored
+faithfulness and erased the regression — a useful reminder that adding an
+escape hatch to a pipeline can do more harm than good when the escape hatch's
+data is out-of-distribution.
+
+The judge is configurable (`--judge-provider`). An earlier rerank-ablation
+run with a weaker local judge gave a noisier, partly-misleading verdict — a
+reminder that, in LLM-as-judge evaluation, judge quality materially affects
+the conclusion.
 
 ## System requirements
 
@@ -111,20 +140,29 @@ query downloads `bge-reranker-base` (~280 MB) into the local model cache.
 uv run python -m boardgames_rag.retrieve \
     --query "How do I trade resources in Catan?" --collection boardgames
 
-# Full RAG — retrieve → rerank → grounded, cited answer
+# Linear RAG — retrieve → rerank → grounded, cited answer
 uv run python -m boardgames_rag.generate \
     --query "How do I trade resources in Catan?" --collection boardgames
 
-# Evaluate — Ragas metrics with a rerank on/off ablation
+# Agentic RAG — plan → retrieve → critique → (retry or generate)
+uv run python -m boardgames_rag.agent \
+    --query "How do I trade resources in Catan?" --collection boardgames
+
+# Evaluate — Ragas metrics, rerank on/off ablation by default
 uv run python -m boardgames_rag.evaluate --collection boardgames
+
+# Evaluate — agent vs linear comparison
+uv run python -m boardgames_rag.evaluate --collection boardgames --pipeline agent
 ```
 
 ## Configuration
 
 Defaults live in [`config.yaml`](config.yaml); CLI flags override them.
 Secrets (`.env`, copied from `.env.example`) are **optional** — only needed
-to point the evaluation judge at a hosted LLM (`--judge-provider gemini`).
-The RAG pipeline needs no keys.
+to point the evaluation judge at a hosted LLM (`--judge-provider gemini`) or
+to run the pipeline on Groq (`--llm-provider groq`, intended for the
+HuggingFace deploy where local Ollama isn't available). The default,
+$0-to-run path needs no keys.
 
 ## Development
 
