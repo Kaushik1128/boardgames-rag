@@ -1,0 +1,68 @@
+/* Custom styles layered on top of Tailwind (loaded via CDN in index.html). */
+
+/* Hide the Tailwind CDN "should not be used in production" console nag
+   for the deployed Space — same warning, in our context the CDN is a
+   deliberate choice to keep the project build-free. */
+
+/* Fade in each trace step as it lands. Subtle — just enough to make the
+   timeline read as "thinking" rather than a static dump. */
+.trace-step {
+  animation: trace-fade-in 250ms ease-out both;
+}
+
+@keyframes trace-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Source-passage text excerpts clamped to four lines so a long chunk
+   doesn't blow out the side panel. Tailwind's line-clamp utilities are
+   plugin-only in v3; this stays portable. */
+.line-clamp-4 {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  line-clamp: 4;
+  overflow: hidden;
+}
+
+/* Inline <code> inside the trace shows the planned/reformulated query. */
+code {
+  background-color: rgb(15 23 42 / 0.8);
+  color: rgb(110 231 183);
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* The answer body. Tighter line-height than the default so multi-paragraph
+   rules text reads as one cohesive answer. */
+#answer {
+  line-height: 1.6;
+}
+
+/* Streaming caret on the in-progress answer. Pure CSS, no JS heartbeat. */
+#answer:not(:empty)::after {
+  content: "▌";
+  display: inline-block;
+  color: rgb(52 211 153);
+  animation: caret-blink 1s steps(1) infinite;
+  margin-left: 1px;
+}
+
+@keyframes caret-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* Once the "done" event fires we add this class on #answer to drop the caret. */
+#answer.complete::after {
+  content: none;
+}

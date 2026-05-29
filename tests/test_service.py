@@ -294,3 +294,56 @@ def test_ask_stream_rejects_empty_question():
     with TestClient(_streaming_app()) as client:
         response = client.post("/ask/stream", json={"question": ""})
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Static frontend — index.html, app.js, data/*.json
+# ---------------------------------------------------------------------------
+
+
+def test_root_serves_index_html():
+    with TestClient(create_app(graph=FakeGraph())) as client:
+        response = client.get("/")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "boardgames-rag" in response.text
+
+
+def test_app_js_is_served():
+    with TestClient(create_app(graph=FakeGraph())) as client:
+        response = client.get("/app.js")
+    assert response.status_code == 200
+    # No application/javascript mime expected — just confirm we got JS.
+    assert "submitQuestion" in response.text or "fetch" in response.text
+
+
+def test_games_json_is_served_and_has_ten_games():
+    with TestClient(create_app(graph=FakeGraph())) as client:
+        response = client.get("/data/games.json")
+    assert response.status_code == 200
+    games = response.json()
+    assert isinstance(games, list)
+    assert len(games) == 10
+    assert {g["slug"] for g in games} >= {"catan", "mtg", "wingspan"}
+
+
+def test_sample_questions_json_has_three_per_game():
+    with TestClient(create_app(graph=FakeGraph())) as client:
+        response = client.get("/data/sample_questions.json")
+    assert response.status_code == 200
+    questions = response.json()
+    for slug, qs in questions.items():
+        assert len(qs) == 3, f"{slug} has {len(qs)} questions, expected 3"
+
+
+def test_static_mount_does_not_shadow_api_routes():
+    """Regression guard: mounting StaticFiles at '/' must keep /ask, /health
+    and /docs reachable. They were registered before the mount, so FastAPI
+    resolves them first."""
+    with TestClient(create_app(graph=FakeGraph(), llm_id="ollama:x")) as client:
+        health = client.get("/health")
+        docs = client.get("/docs")
+    assert health.status_code == 200
+    assert health.json()["pipeline_llm"] == "ollama:x"
+    assert docs.status_code == 200
+    assert "swagger" in docs.text.lower()

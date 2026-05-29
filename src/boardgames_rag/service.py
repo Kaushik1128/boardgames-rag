@@ -28,11 +28,13 @@ import json
 import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from boardgames_rag.agent import build_agent_graph, run_agent, run_agent_streaming
@@ -42,6 +44,12 @@ from boardgames_rag.retrieve import Reranker, build_hybrid_retriever
 from boardgames_rag.utils import setup_logging
 
 logger = logging.getLogger(__name__)
+
+
+# Static frontend assets shipped inside the package — index.html / app.js /
+# styles.css / data/*.json. Mounted at "/" so the deployed Space serves the
+# UI on the root URL.
+_WEB_DIR = Path(__file__).parent / "web"
 
 
 __all__ = [
@@ -304,6 +312,11 @@ def create_app(
                 "x-accel-buffering": "no",
             },
         )
+
+    # Static frontend — mounted last so the API routes above resolve first.
+    # html=True serves index.html on GET /.
+    if _WEB_DIR.exists():
+        app.mount("/", StaticFiles(directory=str(_WEB_DIR), html=True), name="web")
 
     return app
 

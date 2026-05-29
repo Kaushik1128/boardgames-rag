@@ -1,0 +1,52 @@
+{
+  "catan": [
+    "How do I trade resources with other players?",
+    "What happens when someone rolls a 7?",
+    "How do I score the longest road?"
+  ],
+  "ticket-to-ride": [
+    "How do I claim a route?",
+    "How does scoring for completed destination tickets work?",
+    "What happens if I don't complete a destination ticket?"
+  ],
+  "carcassonne": [
+    "How do I score a completed city?",
+    "When can I place a meeple on a road?",
+    "How do farmers score at the end of the game?"
+  ],
+  "azul": [
+    "How do I take tiles from the factory displays?",
+    "How do I score a completed row?",
+    "What happens to broken tiles at the end of a round?"
+  ],
+  "seven-wonders": [
+    "How does the card drafting phase work?",
+    "How are military conflicts resolved?",
+    "How do I build a wonder stage?"
+  ],
+  "wingspan": [
+    "How do I play a bird card from my hand?",
+    "What do the egg-laying actions do?",
+    "How does end-of-round scoring work?"
+  ],
+  "scythe": [
+    "How does combat between two players work?",
+    "How do I gain power on the power track?",
+    "How are encounters resolved?"
+  ],
+  "terraforming-mars": [
+    "How do I raise the temperature on Mars?",
+    "How does the oxygen level change during the game?",
+    "How does the production phase work?"
+  ],
+  "brass-birmingham": [
+    "How do I build an industry tile?",
+    "What is the difference between the canal era and the rail era?",
+    "How does the income track work?"
+  ],
+  "mtg": [
+    "How does the priority system work?",
+    "What is the stack and how is it resolved?",
+    "What are state-based actions?"
+  ]
+}

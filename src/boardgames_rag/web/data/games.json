@@ -1,0 +1,12 @@
+[
+  {"slug": "catan", "name": "Catan", "emoji": "🏝️"},
+  {"slug": "ticket-to-ride", "name": "Ticket to Ride", "emoji": "🚂"},
+  {"slug": "carcassonne", "name": "Carcassonne", "emoji": "🏰"},
+  {"slug": "azul", "name": "Azul", "emoji": "🎨"},
+  {"slug": "seven-wonders", "name": "7 Wonders", "emoji": "🗿"},
+  {"slug": "wingspan", "name": "Wingspan", "emoji": "🦅"},
+  {"slug": "scythe", "name": "Scythe", "emoji": "⚔️"},
+  {"slug": "terraforming-mars", "name": "Terraforming Mars", "emoji": "🪐"},
+  {"slug": "brass-birmingham", "name": "Brass: Birmingham", "emoji": "🏭"},
+  {"slug": "mtg", "name": "Magic: The Gathering", "emoji": "🪄"}
+]

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>boardgames-rag — ask any rulebook</title>
+    <meta
+      name="description"
+      content="Agentic RAG over ten board game rulebooks. Ask a rules question, get a grounded answer with the agent's reasoning shown live."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='75' font-size='80' text-anchor='middle'%3E🎲%3C/text%3E%3C/svg%3E"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = { darkMode: "class" };
+    </script>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body
+    class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500/30"
+  >
+    <!-- Header -->
+    <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-10">
+      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="text-2xl">🎲</span>
+          <div>
+            <h1 class="text-lg font-semibold tracking-tight">boardgames-rag</h1>
+            <p class="text-xs text-slate-400">Agentic RAG over 10 rulebooks</p>
+          </div>
+        </div>
+        <a
+          href="https://github.com/Kaushik1128/boardgames-rag"
+          target="_blank"
+          rel="noopener"
+          class="text-sm text-slate-300 hover:text-emerald-400 transition-colors"
+        >
+          GitHub →
+        </a>
+      </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-8 space-y-8">
+      <!-- Game selector -->
+      <section>
+        <h2 class="text-xs uppercase tracking-wider text-slate-400 mb-3">Pick a rulebook</h2>
+        <div
+          id="game-grid"
+          class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2"
+        ></div>
+      </section>
+
+      <!-- Sample questions -->
+      <section id="chips-section" class="hidden">
+        <h2 class="text-xs uppercase tracking-wider text-slate-400 mb-3">
+          Try a question <span id="chips-game-label" class="text-slate-500 normal-case"></span>
+        </h2>
+        <div id="chips" class="flex flex-wrap gap-2"></div>
+      </section>
+
+      <!-- Question input -->
+      <section>
+        <form id="ask-form" class="flex flex-col sm:flex-row gap-2">
+          <input
+            id="question-input"
+            type="text"
+            placeholder="Ask a rules question…"
+            autocomplete="off"
+            class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+          />
+          <button
+            id="ask-button"
+            type="submit"
+            class="bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:cursor-not-allowed text-slate-950 font-semibold rounded-lg px-6 py-3 transition-colors"
+          >
+            Ask
+          </button>
+        </form>
+      </section>
+
+      <!-- Result area -->
+      <section id="result" class="hidden grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <!-- Left: trace + answer -->
+        <div class="lg:col-span-3 space-y-6">
+          <!-- Trace -->
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <h3 class="text-xs uppercase tracking-wider text-slate-400 mb-3">
+              Agent trace
+            </h3>
+            <ol id="trace" class="space-y-2 text-sm font-mono"></ol>
+          </div>
+          <!-- Answer -->
+          <div
+            id="answer-card"
+            class="bg-slate-900 border border-emerald-900/40 rounded-xl p-5 hidden"
+          >
+            <h3 class="text-xs uppercase tracking-wider text-emerald-400 mb-3">Answer</h3>
+            <div id="answer" class="text-slate-100 leading-relaxed whitespace-pre-wrap"></div>
+          </div>
+          <!-- Error -->
+          <div
+            id="error-card"
+            class="bg-red-950/50 border border-red-900 rounded-xl p-5 hidden"
+          >
+            <h3 class="text-xs uppercase tracking-wider text-red-400 mb-2">Error</h3>
+            <div id="error-message" class="text-red-200 text-sm"></div>
+          </div>
+        </div>
+
+        <!-- Right: sources -->
+        <div class="lg:col-span-2">
+          <div
+            id="sources-card"
+            class="bg-slate-900 border border-slate-800 rounded-xl p-5 hidden"
+          >
+            <h3 class="text-xs uppercase tracking-wider text-slate-400 mb-3">
+              Cited sources
+            </h3>
+            <ol id="sources" class="space-y-3 text-sm"></ol>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t border-slate-800 mt-16">
+      <div class="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-500 flex flex-wrap gap-4 justify-between">
+        <div>
+          Local Ollama (dev) · Groq (deploy) · Qdrant + BM25 hybrid retrieval · bge-reranker
+        </div>
+        <a
+          href="/docs"
+          class="hover:text-emerald-400 transition-colors"
+          target="_blank"
+          rel="noopener"
+        >
+          OpenAPI docs →
+        </a>
+      </div>
+    </footer>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
