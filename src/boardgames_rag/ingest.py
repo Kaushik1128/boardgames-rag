@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from itertools import batched
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import tiktoken
 import typer
@@ -375,24 +375,39 @@ class Embedder:
         )
 
 
+def build_qdrant_client(qdrant_config: Any) -> Any:
+    """Construct a QdrantClient honoring the path-or-url config toggle.
+
+    ``qdrant_config.path`` (embedded, on-disk; used by the HF Spaces deploy)
+    wins over ``qdrant_config.url`` (server, used in local dev). The path
+    directory is created on demand; the URL mode assumes a server is up.
+    """
+    from qdrant_client import QdrantClient  # lazy
+
+    if qdrant_config.path:
+        Path(qdrant_config.path).mkdir(parents=True, exist_ok=True)
+        return QdrantClient(path=qdrant_config.path)
+    return QdrantClient(url=qdrant_config.url)
+
+
 class QdrantStore:
     """Thin Qdrant wrapper: connect, ensure collection, upsert."""
 
-    def __init__(self, url: str, collection: str, dim: int, distance: str) -> None:
-        from qdrant_client import QdrantClient  # lazy
+    def __init__(self, qdrant_config: Any, dim: int) -> None:
         from qdrant_client.http.models import Distance, VectorParams
 
-        self.client = QdrantClient(url=url)
-        self.collection = collection
-        if not self.client.collection_exists(collection):
+        self.client = build_qdrant_client(qdrant_config)
+        self.collection = qdrant_config.collection
+        distance = qdrant_config.distance
+        if not self.client.collection_exists(self.collection):
             logger.info(
                 "Creating Qdrant collection %r (dim=%d, distance=%s)",
-                collection,
+                self.collection,
                 dim,
                 distance,
             )
             self.client.create_collection(
-                collection_name=collection,
+                collection_name=self.collection,
                 vectors_config=VectorParams(
                     size=dim,
                     distance=Distance[distance.upper()],
@@ -442,12 +457,11 @@ def ingest_directory(
         batch_size=settings.embedding.batch_size,
         normalize=settings.embedding.normalize,
     )
-    store = QdrantStore(
-        url=settings.qdrant.url,
-        collection=collection,
-        dim=embedder.dim,
-        distance=settings.qdrant.distance,
-    )
+    # Honor an explicit --collection override by swapping it into a copy of
+    # the qdrant config before handing it to the store. Avoids mutating the
+    # caller's settings object.
+    qdrant_config = settings.qdrant.model_copy(update={"collection": collection})
+    store = QdrantStore(qdrant_config=qdrant_config, dim=embedder.dim)
 
     # Pass 1: parse + chunk every supported file (cheap; no embedding yet).
     plan: list[tuple[Path, list[Chunk]]] = []
@@ -538,6 +552,17 @@ def main(
         str | None,
         typer.Option("--collection", help="Qdrant collection name."),
     ] = None,
+    qdrant_path: Annotated[
+        str | None,
+        typer.Option(
+            "--qdrant-path",
+            help=(
+                "Write to an embedded on-disk Qdrant instance at this path instead "
+                "of the configured server URL. Used to build the index baked into "
+                "the deploy image."
+            ),
+        ),
+    ] = None,
     config_path: Annotated[
         Path,
         typer.Option("--config", help="Path to YAML config."),
@@ -554,6 +579,8 @@ def main(
         settings.ingest.source_dir = source_dir
     if collection is not None:
         settings.qdrant.collection = collection
+    if qdrant_path is not None:
+        settings.qdrant.path = qdrant_path
 
     total = ingest_directory(
         source_dir=settings.ingest.source_dir,

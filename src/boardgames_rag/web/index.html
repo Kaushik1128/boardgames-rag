@@ -125,18 +125,30 @@
     </main>
 
     <footer class="border-t border-slate-800 mt-16">
-      <div class="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-500 flex flex-wrap gap-4 justify-between">
-        <div>
-          Local Ollama (dev) · Groq (deploy) · Qdrant + BM25 hybrid retrieval · bge-reranker
+      <div class="max-w-6xl mx-auto px-4 py-6 space-y-2">
+        <div class="text-xs text-slate-500 flex flex-wrap gap-4 justify-between">
+          <div>
+            Local Ollama (dev) · Groq (deploy) · Qdrant + BM25 hybrid retrieval · bge-reranker
+          </div>
+          <a
+            href="/docs"
+            class="hover:text-emerald-400 transition-colors"
+            target="_blank"
+            rel="noopener"
+          >
+            OpenAPI docs →
+          </a>
         </div>
-        <a
-          href="/docs"
-          class="hover:text-emerald-400 transition-colors"
-          target="_blank"
-          rel="noopener"
-        >
-          OpenAPI docs →
-        </a>
+        <div class="text-[11px] text-slate-600 leading-relaxed">
+          Rule excerpts shown as sources are © their respective publishers and are surfaced here for
+          educational demonstration. Rights-holders may request removal via a
+          <a
+            href="https://github.com/Kaushik1128/boardgames-rag/issues"
+            class="underline hover:text-emerald-400 transition-colors"
+            target="_blank"
+            rel="noopener"
+          >GitHub issue</a>.
+        </div>
       </div>
     </footer>
 

@@ -1,0 +1,63 @@
+# Deploy-flavored configuration — used by the HuggingFace Spaces image.
+#
+# Diff from the dev config.yaml at the repo root:
+#   - Qdrant runs embedded on disk (no separate server). Path is relative
+#     to the container WORKDIR (/app).
+#   - Generation backend is groq (the deploy LLM); the free-tier 70B is
+#     much stronger than the local llama3.2:3b we develop on.
+#   - Web fallback stays off (week-5 finding — see project README).
+
+qdrant:
+  path: ./data/qdrant_local
+  collection: boardgames
+  distance: Cosine
+
+embedding:
+  model_name: BAAI/bge-small-en-v1.5
+  device: cpu
+  batch_size: 32
+  normalize: true
+
+chunking:
+  target_tokens: 512
+  overlap_tokens: 50
+  tokenizer: cl100k_base
+
+ingest:
+  source_dir: ./data/raw
+
+retrieval:
+  top_k: 10
+  k_per_retriever: 20
+  bm25:
+    index_dir: ./data/bm25
+    k1: 1.5
+    b: 0.75
+  fusion:
+    method: rrf
+    rrf_k: 60
+    weighted_alpha: 0.5
+
+rerank:
+  enabled: true
+  model_name: BAAI/bge-reranker-base
+  device: cpu
+  top_k: 5
+
+generation:
+  # Groq's OpenAI-compatible endpoint via the groq_model. The 70B is the
+  # planner / critic / generator for the deployed agent.
+  backend: groq
+  base_url: http://localhost:11434/v1  # ignored when backend == groq
+  model: llama3.2:3b                    # ignored when backend == groq
+  groq_model: llama-3.3-70b-versatile
+  temperature: 0.1
+  max_tokens: 1024
+  timeout_seconds: 120.0
+  max_context_chunks: 5
+
+agent:
+  max_retrieval_attempts: 2
+  # Off — the week-5 eval showed the web fallback regresses faithfulness.
+  web_fallback_enabled: false
+  web_results: 5

@@ -536,9 +536,8 @@ def build_hybrid_retriever(
     collection: str,
 ) -> HybridRetriever:
     """Construct a HybridRetriever with the real Embedder + Qdrant client."""
-    from qdrant_client import QdrantClient  # lazy
-
-    from boardgames_rag.ingest import Embedder  # lazy, avoids module cycle
+    # Lazy, avoids module cycle.
+    from boardgames_rag.ingest import Embedder, build_qdrant_client
 
     embedder = Embedder(
         model_name=settings.embedding.model_name,
@@ -546,7 +545,7 @@ def build_hybrid_retriever(
         batch_size=settings.embedding.batch_size,
         normalize=settings.embedding.normalize,
     )
-    client = QdrantClient(url=settings.qdrant.url)
+    client = build_qdrant_client(settings.qdrant)
     dense = DenseRetriever(embedder=embedder, client=client, collection=collection)
 
     index_path = settings.retrieval.bm25.index_dir / f"{collection}.pkl"

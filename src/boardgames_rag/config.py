@@ -17,7 +17,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class QdrantConfig(BaseModel):
+    """Qdrant connection settings.
+
+    Two modes, picked by which field is set:
+
+      - ``url`` (default) — talk to a Qdrant server (the docker-compose
+        instance during local dev).
+      - ``path`` — embedded mode: Qdrant runs in-process and persists to a
+        local directory. Used for the single-container HF Spaces deploy.
+
+    If both are set, ``path`` wins. ``path`` must point at a directory
+    that's been pre-populated by a prior ingest run; the server-mode dev
+    workflow can be re-used to produce that directory.
+    """
+
     url: str = "http://localhost:6333"
+    path: str | None = None
     collection: str = "boardgames"
     distance: Literal["Cosine", "Dot", "Euclid", "Manhattan"] = "Cosine"
 

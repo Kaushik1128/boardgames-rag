@@ -38,7 +38,8 @@ class FakeQdrantStore:
     """Captures upserts in memory; does not touch a Qdrant server."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self.collection = kwargs.get("collection", "test")
+        qdrant_config = kwargs.get("qdrant_config")
+        self.collection = getattr(qdrant_config, "collection", "test")
         self.upserts: list[list[Any]] = []
 
     def upsert(self, points: list[Any]) -> None:
@@ -144,3 +145,59 @@ def test_cli_main_invokes_pipeline(tmp_path, patched_pipeline):
     )
     assert result.exit_code == 0, result.output
     assert "Ingested" in result.output
+
+
+# ---------------------------------------------------------------------------
+# build_qdrant_client — picks server vs embedded mode by config
+# ---------------------------------------------------------------------------
+
+
+def test_build_qdrant_client_uses_url_when_path_unset(monkeypatch):
+    """Default config: hit the server at qdrant.url, not a local directory."""
+    captured: dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("qdrant_client.QdrantClient", FakeClient)
+    settings = Settings()
+    ingest_module.build_qdrant_client(settings.qdrant)
+    assert "url" in captured
+    assert captured["url"] == settings.qdrant.url
+    assert "path" not in captured
+
+
+def test_build_qdrant_client_uses_path_when_set(monkeypatch, tmp_path):
+    """Setting qdrant.path switches to embedded mode and creates the dir."""
+    captured: dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("qdrant_client.QdrantClient", FakeClient)
+    settings = Settings()
+    target = tmp_path / "qdrant_data"
+    settings.qdrant.path = str(target)
+    ingest_module.build_qdrant_client(settings.qdrant)
+    assert captured.get("path") == str(target)
+    assert "url" not in captured
+    assert target.exists()  # mkdir(parents=True, exist_ok=True)
+
+
+def test_build_qdrant_client_path_wins_over_url(monkeypatch, tmp_path):
+    """If both are set, the deploy-style path takes precedence."""
+    captured: dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("qdrant_client.QdrantClient", FakeClient)
+    settings = Settings()
+    settings.qdrant.url = "http://example.invalid:6333"
+    settings.qdrant.path = str(tmp_path / "data")
+    ingest_module.build_qdrant_client(settings.qdrant)
+    assert "path" in captured
+    assert "url" not in captured

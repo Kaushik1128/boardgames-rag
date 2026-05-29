@@ -1,0 +1,32 @@
+# Keep the deploy image lean. Anything not COPY'd by the Dockerfile is
+# moot, but excluding the heavy stuff here also speeds up `docker build`'s
+# context-transfer step.
+
+# Python tooling output
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage*
+htmlcov/
+
+# Virtualenv + IDE state
+.venv/
+.idea/
+.vscode/
+
+# Dev-only artifacts
+eval/results/
+data/raw/
+.git/
+.github/
+
+# Local secrets — Spaces injects GROQ_API_KEY via its own secrets UI
+.env
+.env.local
+
+# Docs
+README.md
+*.md
+!deploy/HOW_TO_DEPLOY.md
