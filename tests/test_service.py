@@ -1,14 +1,15 @@
 """Tests for the FastAPI service.
 
 Heavyweight collaborators (retriever, reranker, LLM, compiled graph) are
-bypassed by injecting a fake graph via ``create_app(graph=...)``. The
-lifespan handler sees the pre-set ``app.state.graph`` and skips the build
-phase, so these tests run with no Qdrant, no Ollama, no model downloads
-and no network.
+bypassed by injecting fakes via ``create_app(graph=..., llm=..., ...)``.
+The lifespan handler sees the pre-set ``app.state.graph`` and skips the
+build phase, so these tests run with no Qdrant, no Ollama, no model
+downloads and no network.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -56,6 +57,63 @@ class FakeGraph:
 class FailingGraph:
     def invoke(self, state: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("LLM endpoint unreachable")
+
+
+class FakeLLM:
+    """Routes generate() by system prompt; generate_stream() yields chunks."""
+
+    def __init__(
+        self,
+        *,
+        answer: str = "the final answer",
+        critiques: list[str] | None = None,
+    ) -> None:
+        self.answer = answer
+        self.critiques = critiques or ["VERDICT: SUFFICIENT\nQUERY:"]
+        self._ci = 0
+
+    def generate(self, messages: list[dict[str, str]]) -> str:
+        system = messages[0]["content"] if messages else ""
+        if "judge whether" in system:
+            i = min(self._ci, len(self.critiques) - 1)
+            self._ci += 1
+            return self.critiques[i]
+        if "search query" in system:
+            return "planned query"
+        return self.answer
+
+    def generate_stream(self, messages: list[dict[str, str]]):
+        yield self.answer[: len(self.answer) // 2]
+        yield self.answer[len(self.answer) // 2 :]
+
+
+class FakeRetriever:
+    def search(self, query: str, top_k: int = 10) -> list[RetrievedChunk]:
+        return [_chunk()]
+
+    def verify_consistency(self) -> None:
+        pass
+
+
+class FakeReranker:
+    def rerank(self, query: str, chunks: list, top_k: int) -> list:
+        return list(chunks[:top_k])
+
+
+def _parse_sse(body: str) -> list[tuple[str, dict[str, Any]]]:
+    """Decode an SSE stream body into ``(event_name, payload)`` tuples."""
+    events: list[tuple[str, dict[str, Any]]] = []
+    for raw in body.strip().split("\n\n"):
+        name = ""
+        data = ""
+        for line in raw.splitlines():
+            if line.startswith("event: "):
+                name = line[len("event: ") :]
+            elif line.startswith("data: "):
+                data = line[len("data: ") :]
+        if name:
+            events.append((name, json.loads(data) if data else {}))
+    return events
 
 
 # ---------------------------------------------------------------------------
@@ -164,3 +222,75 @@ def test_cors_headers_present_for_options():
         )
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") == "*"
+
+
+# ---------------------------------------------------------------------------
+# /ask/stream — Server-Sent Events
+# ---------------------------------------------------------------------------
+
+
+def _streaming_app(llm: FakeLLM | None = None):
+    """Build a streaming-capable test app with all collaborators injected."""
+    return create_app(
+        graph=FakeGraph(),  # /ask uses this; /ask/stream bypasses it
+        llm=llm or FakeLLM(answer="hello world"),
+        retriever=FakeRetriever(),
+        reranker=FakeReranker(),
+    )
+
+
+def test_ask_stream_returns_event_stream_content_type():
+    with TestClient(_streaming_app()) as client:
+        response = client.post("/ask/stream", json={"question": "How do I trade?"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+
+
+def test_ask_stream_event_sequence_for_sufficient_path():
+    with TestClient(_streaming_app(FakeLLM(answer="alpha beta"))) as client:
+        response = client.post("/ask/stream", json={"question": "How do I trade?"})
+    events = _parse_sse(response.text)
+    names = [e[0] for e in events]
+    assert names[0] == "plan"
+    assert "retrieve" in names
+    assert "critique" in names
+    assert "token" in names
+    assert names[-2] == "sources"
+    assert names[-1] == "done"
+
+
+def test_ask_stream_reassembles_tokens_into_full_answer():
+    with TestClient(_streaming_app(FakeLLM(answer="streamed answer"))) as client:
+        response = client.post("/ask/stream", json={"question": "q"})
+    events = _parse_sse(response.text)
+    text = "".join(p["text"] for name, p in events if name == "token")
+    assert text == "streamed answer"
+
+
+def test_ask_stream_done_payload_carries_attempts_and_used_web():
+    with TestClient(_streaming_app()) as client:
+        response = client.post("/ask/stream", json={"question": "q"})
+    events = _parse_sse(response.text)
+    done_payload = next(p for name, p in events if name == "done")
+    assert done_payload == {"attempts": 1, "used_web": False}
+
+
+def test_ask_stream_emits_error_event_on_runtime_error():
+    """SSE has no clean way to fail with a non-200 mid-stream; a final
+    ``error`` event is the contract instead."""
+
+    class BoomLLM(FakeLLM):
+        def generate(self, messages):
+            raise RuntimeError("model unreachable")
+
+    with TestClient(_streaming_app(BoomLLM())) as client:
+        response = client.post("/ask/stream", json={"question": "q"})
+    events = _parse_sse(response.text)
+    assert events[-1][0] == "error"
+    assert "unreachable" in events[-1][1]["message"]
+
+
+def test_ask_stream_rejects_empty_question():
+    with TestClient(_streaming_app()) as client:
+        response = client.post("/ask/stream", json={"question": ""})
+    assert response.status_code == 422

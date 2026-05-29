@@ -24,16 +24,18 @@ isolated apps via :func:`create_app` and inject a pre-built graph.
 
 from __future__ import annotations
 
+import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from boardgames_rag.agent import build_agent_graph, run_agent
+from boardgames_rag.agent import build_agent_graph, run_agent, run_agent_streaming
 from boardgames_rag.config import Settings, load_settings
 from boardgames_rag.generate import build_generator
 from boardgames_rag.retrieve import Reranker, build_hybrid_retriever
@@ -162,7 +164,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         rerank_top_k=settings.rerank.top_k,
         web_results=settings.agent.web_results,
     )
+    # Stash the graph (used by /ask) and the raw collaborators (used by
+    # /ask/stream, which bypasses the graph to yield events between nodes).
     app.state.graph = graph
+    app.state.llm = llm
+    app.state.retriever = hybrid
+    app.state.reranker = reranker
     app.state.llm_id = _llm_id(settings)
     logger.info("Service ready (pipeline LLM: %s).", app.state.llm_id)
 
@@ -181,6 +188,9 @@ def create_app(
     settings: Settings | None = None,
     *,
     graph: Any = None,
+    llm: Any = None,
+    retriever: Any = None,
+    reranker: Any = None,
     llm_id: str = "unknown",
     skip_consistency_check: bool = False,
 ) -> FastAPI:
@@ -191,6 +201,10 @@ def create_app(
         graph: Optional pre-built agent graph. Supplying it bypasses the
             heavyweight build inside the lifespan handler — the path tests
             take.
+        llm, retriever, reranker: Optional pre-built collaborators used by
+            the streaming ``/ask/stream`` endpoint. Only required for tests
+            that exercise streaming; production builds populate them in the
+            lifespan handler.
         llm_id: Identifier returned by ``/health`` when ``graph`` is injected.
             Ignored on the production build path (computed from settings).
         skip_consistency_check: If True, the BM25-vs-Qdrant consistency check
@@ -209,6 +223,9 @@ def create_app(
     app.state.skip_consistency_check = skip_consistency_check
     # When tests inject a graph, the lifespan will see it and skip the build.
     app.state.graph = graph
+    app.state.llm = llm
+    app.state.retriever = retriever
+    app.state.reranker = reranker
     app.state.llm_id = llm_id
 
     # Permissive CORS — the HF Spaces iframe demo needs this.
@@ -252,7 +269,58 @@ def create_app(
             trace=result.trace,
         )
 
+    @app.post("/ask/stream")
+    def ask_stream(req: AskRequest, request: Request) -> StreamingResponse:
+        """Run the agent and stream events as Server-Sent Events.
+
+        Each event is a named SSE message: ``plan`` / ``retrieve`` /
+        ``critique`` / ``web_fallback`` / ``token`` / ``sources`` / ``done``.
+        The browser side reads them via ``EventSource`` to animate the
+        agent trace and stream the final answer token by token.
+
+        A pipeline RuntimeError is surfaced as a final ``error`` SSE event
+        rather than a 502 — SSE has no clean way to fail a stream mid-flight
+        with a non-200 status once headers are sent.
+        """
+        state = request.app.state
+        events = run_agent_streaming(
+            req.question,
+            llm=state.llm,
+            retriever=state.retriever,
+            reranker=state.reranker,
+            retrieve_k=state.settings.retrieval.k_per_retriever,
+            rerank_top_k=state.settings.rerank.top_k,
+            max_attempts=state.settings.agent.max_retrieval_attempts,
+            web_fallback_enabled=state.settings.agent.web_fallback_enabled,
+            web_results=state.settings.agent.web_results,
+        )
+        return StreamingResponse(
+            _sse_from_events(events),
+            media_type="text/event-stream",
+            headers={
+                "cache-control": "no-cache",
+                # Disable buffering on proxies (HF Spaces) so tokens reach the
+                # browser as they're produced, not in batches.
+                "x-accel-buffering": "no",
+            },
+        )
+
     return app
+
+
+def _sse_from_events(events: Iterator[tuple[str, Any]]) -> Iterator[str]:
+    """Format ``(name, payload)`` tuples as SSE wire frames.
+
+    SSE frame format: ``event: <name>\\ndata: <json>\\n\\n``. Errors raised
+    by the underlying generator are converted into an ``error`` SSE event so
+    the browser can render a clean failure state instead of a torn stream.
+    """
+    try:
+        for name, payload in events:
+            yield f"event: {name}\ndata: {json.dumps(payload)}\n\n"
+    except RuntimeError as exc:
+        logger.exception("Streaming pipeline failure")
+        yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
 
 
 # Default app instance — what `uvicorn boardgames_rag.service:app` imports.

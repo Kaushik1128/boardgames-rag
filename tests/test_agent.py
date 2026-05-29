@@ -24,6 +24,7 @@ from boardgames_rag.agent import (
     retrieve_node,
     route_after_critique,
     run_agent,
+    run_agent_streaming,
     web_fallback_node,
 )
 from boardgames_rag.retrieve import RetrievedChunk
@@ -70,6 +71,13 @@ class FakeLLM:
         if "search query" in system:
             return self.query
         return self.answer
+
+    def generate_stream(self, messages: list[dict[str, str]]):
+        """Yield the final answer in two chunks so tests can assert order."""
+        text = self.answer
+        midpoint = max(1, len(text) // 2)
+        yield text[:midpoint]
+        yield text[midpoint:]
 
 
 class FakeRetriever:
@@ -323,6 +331,106 @@ class TestAgentGraph:
         assert "retrieve" in joined
         assert "critique" in joined
         assert "generate" in joined
+
+
+# ---------------------------------------------------------------------------
+# run_agent_streaming — generator-style agent for SSE wiring
+# ---------------------------------------------------------------------------
+
+
+def _stream(
+    llm: FakeLLM,
+    *,
+    max_attempts: int = 2,
+    web_fallback_enabled: bool = True,
+    web_search=None,
+    retriever: FakeRetriever | None = None,
+):
+    """Helper: collect every event run_agent_streaming yields into a list."""
+    return list(
+        run_agent_streaming(
+            "How do I trade?",
+            llm=llm,
+            retriever=retriever or FakeRetriever(),
+            reranker=FakeReranker(),
+            retrieve_k=10,
+            rerank_top_k=2,
+            max_attempts=max_attempts,
+            web_fallback_enabled=web_fallback_enabled,
+            web_search=web_search or (lambda q, n: [_chunk("web", "w")]),
+            web_results=3,
+        )
+    )
+
+
+class TestRunAgentStreaming:
+    def test_sufficient_path_event_sequence(self):
+        llm = FakeLLM(critiques=["VERDICT: SUFFICIENT\nQUERY:"], answer="grounded")
+        events = _stream(llm)
+        names = [e[0] for e in events]
+        # plan -> retrieve -> critique -> token(s) -> sources -> done
+        assert names[0] == "plan"
+        assert names[1] == "retrieve"
+        assert names[2] == "critique"
+        assert "token" in names
+        assert names[-2] == "sources"
+        assert names[-1] == "done"
+
+    def test_tokens_reassemble_to_full_answer(self):
+        llm = FakeLLM(critiques=["VERDICT: SUFFICIENT\nQUERY:"], answer="the final answer")
+        events = _stream(llm)
+        text = "".join(p["text"] for name, p in events if name == "token")
+        assert text == "the final answer"
+
+    def test_loop_emits_two_retrieve_events(self):
+        llm = FakeLLM(
+            critiques=["VERDICT: INSUFFICIENT\nQUERY: better q", "VERDICT: SUFFICIENT\nQUERY:"],
+            answer="A",
+        )
+        events = _stream(llm)
+        retrieves = [p for name, p in events if name == "retrieve"]
+        assert [r["attempt"] for r in retrieves] == [1, 2]
+        done = next(p for name, p in events if name == "done")
+        assert done["attempts"] == 2
+        assert done["used_web"] is False
+
+    def test_exhausted_triggers_web_fallback_event(self):
+        llm = FakeLLM(critiques=["VERDICT: INSUFFICIENT\nQUERY: x"], answer="A")
+        events = _stream(llm, web_search=lambda q, n: [_chunk("web1", "w1")])
+        names = [e[0] for e in events]
+        assert "web_fallback" in names
+        done = next(p for name, p in events if name == "done")
+        assert done["used_web"] is True
+
+    def test_exhausted_web_disabled_skips_web_fallback(self):
+        llm = FakeLLM(critiques=["VERDICT: INSUFFICIENT\nQUERY: x"], answer="A")
+        events = _stream(llm, web_fallback_enabled=False)
+        names = [e[0] for e in events]
+        assert "web_fallback" not in names
+        done = next(p for name, p in events if name == "done")
+        assert done["used_web"] is False
+
+    def test_sources_event_carries_chunk_metadata(self):
+        llm = FakeLLM(critiques=["VERDICT: SUFFICIENT\nQUERY:"], answer="A")
+        events = _stream(llm)
+        sources = next(p for name, p in events if name == "sources")
+        assert isinstance(sources, list)
+        assert sources[0]["source_file"] == "x.pdf"
+        assert sources[0]["heading"] == "H"
+        assert "text" in sources[0]
+        assert "score" in sources[0]
+
+    def test_critique_event_includes_reformulated_query_when_insufficient(self):
+        llm = FakeLLM(
+            critiques=["VERDICT: INSUFFICIENT\nQUERY: smarter q", "VERDICT: SUFFICIENT\nQUERY:"],
+            answer="A",
+        )
+        events = _stream(llm)
+        critiques = [p for name, p in events if name == "critique"]
+        assert critiques[0]["verdict"] == "insufficient"
+        assert critiques[0]["reformulated_query"] == "smarter q"
+        assert critiques[1]["verdict"] == "sufficient"
+        assert critiques[1]["reformulated_query"] == ""
 
 
 # ---------------------------------------------------------------------------

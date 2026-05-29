@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Protocol
@@ -113,6 +114,8 @@ def build_prompt(question: str, chunks: list[RetrievedChunk]) -> list[dict[str, 
 class Generator(Protocol):
     def generate(self, messages: list[dict[str, str]]) -> str: ...
 
+    def generate_stream(self, messages: list[dict[str, str]]) -> Iterator[str]: ...
+
 
 class RetrieverProtocol(Protocol):
     def search(self, query: str, top_k: int = ...) -> list[RetrievedChunk]: ...
@@ -164,6 +167,37 @@ class OllamaGenerator:
             ) from exc
         content = response.choices[0].message.content
         return (content or "").strip()
+
+    def generate_stream(self, messages: list[dict[str, str]]) -> Iterator[str]:
+        """Stream the LLM response chunk by chunk via OpenAI-compatible SSE.
+
+        Yields each delta as it arrives — the caller decides what to do with
+        them (forward as SSE to the browser, accumulate, etc.). Empty deltas
+        are skipped. ``APIConnectionError`` is normalized into the same
+        friendly ``RuntimeError`` as :meth:`generate`.
+        """
+        from openai import APIConnectionError  # lazy
+
+        try:
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,  # type: ignore[arg-type]
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                stream=True,
+            )
+        except APIConnectionError as exc:
+            raise RuntimeError(
+                f"Could not reach the LLM endpoint at {self.base_url}. "
+                f"Is Ollama running? Start it, then run "
+                f"`ollama pull {self.model}`."
+            ) from exc
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
 
 
 def build_generator(settings: Settings) -> OllamaGenerator:

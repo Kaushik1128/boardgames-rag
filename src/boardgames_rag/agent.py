@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import operator
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -57,6 +57,7 @@ __all__ = [
     "retrieve_node",
     "route_after_critique",
     "run_agent",
+    "run_agent_streaming",
     "web_fallback_node",
 ]
 
@@ -168,16 +169,24 @@ _CRITIQUE_SYSTEM = (
 )
 
 
-def plan_node(state: AgentState, *, llm: Generator) -> dict[str, Any]:
-    """Reformulate the question into an initial search query."""
-    question = state["question"]
+def _plan_query(question: str, llm: Generator) -> str:
+    """Pure LLM call: turn a question into a search query.
+
+    Shared by :func:`plan_node` (graph wiring) and
+    :func:`run_agent_streaming` (SSE wiring).
+    """
     messages = [
         {"role": "system", "content": _PLAN_SYSTEM},
         {"role": "user", "content": question},
     ]
     raw = llm.generate(messages).strip()
     query = raw.splitlines()[0].strip() if raw else question
-    query = query or question
+    return query or question
+
+
+def plan_node(state: AgentState, *, llm: Generator) -> dict[str, Any]:
+    """Reformulate the question into an initial search query."""
+    query = _plan_query(state["question"], llm)
     return {"query": query, "trace": [f"plan: query = {query!r}"]}
 
 
@@ -204,21 +213,29 @@ def retrieve_node(
     }
 
 
-def critique_node(state: AgentState, *, llm: Generator) -> dict[str, Any]:
-    """LLM critic: is the retrieved context sufficient to answer the question?"""
-    chunks = state["chunks"]
+def _critique_chunks(
+    question: str, chunks: list[RetrievedChunk], llm: Generator
+) -> tuple[str, str]:
+    """Pure LLM call: judge sufficiency of retrieved context for a question.
+
+    Returns ``(verdict, suggested_query)`` where verdict is
+    ``"sufficient"`` or ``"insufficient"``. Shared by :func:`critique_node`
+    and :func:`run_agent_streaming`.
+    """
     context = (
         "\n\n".join(f"[{i}] {c.payload.get('text', '')}" for i, c in enumerate(chunks, start=1))
         or "(no context retrieved)"
     )
     messages = [
         {"role": "system", "content": _CRITIQUE_SYSTEM},
-        {
-            "role": "user",
-            "content": f"Question: {state['question']}\n\nContext:\n{context}",
-        },
+        {"role": "user", "content": f"Question: {question}\n\nContext:\n{context}"},
     ]
-    verdict, suggested = _parse_critique(llm.generate(messages))
+    return _parse_critique(llm.generate(messages))
+
+
+def critique_node(state: AgentState, *, llm: Generator) -> dict[str, Any]:
+    """LLM critic: is the retrieved context sufficient to answer the question?"""
+    verdict, suggested = _critique_chunks(state["question"], state["chunks"], llm)
     note = f" -> {suggested!r}" if suggested else ""
     update: dict[str, Any] = {"verdict": verdict, "trace": [f"critique: {verdict}{note}"]}
     if verdict == "insufficient" and suggested:
@@ -307,6 +324,94 @@ def build_agent_graph(
     graph.add_edge("web_fallback", "generate")
     graph.add_edge("generate", END)
     return graph.compile()
+
+
+def run_agent_streaming(
+    question: str,
+    *,
+    llm: Generator,
+    retriever: RetrieverProtocol,
+    reranker: RerankerProtocol | None,
+    retrieve_k: int,
+    rerank_top_k: int,
+    max_attempts: int,
+    web_fallback_enabled: bool,
+    web_search: Callable[[str, int], list[RetrievedChunk]] = duckduckgo_search,
+    web_results: int = 5,
+) -> Iterator[tuple[str, Any]]:
+    """Run the agent as a generator of ``(event_name, payload)`` events.
+
+    Bypasses the compiled LangGraph and orchestrates the nodes by hand so
+    SSE-style events can be yielded between steps, and so the final
+    generation can stream tokens. Same logic as the compiled graph; same
+    web-fallback / loop / retry semantics.
+
+    Event types and payloads:
+
+      - ``plan``         ``{"query": str}``
+      - ``retrieve``     ``{"attempt": int, "n_chunks": int}``
+      - ``critique``     ``{"verdict": "sufficient"|"insufficient", "reformulated_query": str}``
+      - ``web_fallback`` ``{"n_chunks": int}`` (only when triggered)
+      - ``token``        ``{"text": str}`` (many — one per LLM stream chunk)
+      - ``sources``      ``[{"source_file", "heading", "score", "text"}, ...]``
+      - ``done``         ``{"attempts": int, "used_web": bool}``
+    """
+    # ---- plan ---------------------------------------------------------
+    query = _plan_query(question, llm)
+    yield ("plan", {"query": query})
+
+    # ---- retrieve + critique loop ------------------------------------
+    chunks: list[RetrievedChunk] = []
+    attempts = 0
+    used_web = False
+    while True:
+        attempts += 1
+        candidates = retriever.search(query, top_k=retrieve_k)
+        if reranker is not None and candidates:
+            chunks = reranker.rerank(query, candidates, top_k=rerank_top_k)
+        else:
+            chunks = candidates[:rerank_top_k]
+        yield ("retrieve", {"attempt": attempts, "n_chunks": len(chunks)})
+
+        verdict, suggested = _critique_chunks(question, chunks, llm)
+        yield (
+            "critique",
+            {
+                "verdict": verdict,
+                "reformulated_query": suggested if verdict == "insufficient" else "",
+            },
+        )
+
+        if verdict == "sufficient":
+            break
+        if attempts >= max_attempts:
+            if web_fallback_enabled:
+                chunks = web_search(question, web_results)
+                used_web = True
+                yield ("web_fallback", {"n_chunks": len(chunks)})
+            break
+        if suggested:
+            query = suggested
+
+    # ---- generate (token-streamed) -----------------------------------
+    messages = build_prompt(question, chunks)
+    for delta in llm.generate_stream(messages):
+        yield ("token", {"text": delta})
+
+    # ---- final sources + done ----------------------------------------
+    yield (
+        "sources",
+        [
+            {
+                "source_file": c.payload.get("source_file", "") or "",
+                "heading": c.payload.get("heading") or c.payload.get("parent_heading") or "",
+                "score": c.score,
+                "text": c.payload.get("text", "") or "",
+            }
+            for c in chunks
+        ],
+    )
+    yield ("done", {"attempts": attempts, "used_web": used_web})
 
 
 def run_agent(

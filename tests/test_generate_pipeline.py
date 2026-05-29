@@ -69,15 +69,34 @@ class FakeGenerator:
 
 
 class FakeOpenAIClient:
-    """Stand-in for openai.OpenAI exposing chat.completions.create."""
+    """Stand-in for openai.OpenAI exposing chat.completions.create.
 
-    def __init__(self, response_text: str | None = "generated answer") -> None:
+    Also serves streaming requests: when ``stream=True`` is passed, returns
+    an iterator of fake chunks built from ``stream_deltas`` (defaults to a
+    split of ``response_text`` on word boundaries).
+    """
+
+    def __init__(
+        self,
+        response_text: str | None = "generated answer",
+        stream_deltas: list[str] | None = None,
+    ) -> None:
         self.response_text = response_text
+        self.stream_deltas = stream_deltas
         self.create_calls: list[dict] = []
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
         self.create_calls.append(kwargs)
+        if kwargs.get("stream"):
+            deltas = self.stream_deltas
+            if deltas is None:
+                deltas = (self.response_text or "").split(" ")
+                deltas = [(d + " ") if i < len(deltas) - 1 else d for i, d in enumerate(deltas)]
+            return iter(
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=d))])
+                for d in deltas
+            )
         message = SimpleNamespace(content=self.response_text)
         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
@@ -224,6 +243,42 @@ class TestOllamaGenerator:
         gen.client = FailingClient()  # type: ignore[assignment]
         with pytest.raises(RuntimeError, match="Is Ollama running"):
             gen.generate([{"role": "user", "content": "q"}])
+
+    def test_generate_stream_yields_deltas_in_order(self):
+        gen = OllamaGenerator(model="test-model")
+        gen.client = FakeOpenAIClient(stream_deltas=["Hello ", "world", "!"])  # type: ignore[assignment]
+        chunks = list(gen.generate_stream([{"role": "user", "content": "q"}]))
+        assert chunks == ["Hello ", "world", "!"]
+
+    def test_generate_stream_passes_stream_true(self):
+        gen = OllamaGenerator(model="test-model")
+        fake = FakeOpenAIClient(stream_deltas=["a"])
+        gen.client = fake  # type: ignore[assignment]
+        list(gen.generate_stream([{"role": "user", "content": "q"}]))
+        assert fake.create_calls[0]["stream"] is True
+
+    def test_generate_stream_skips_empty_deltas(self):
+        """Some providers emit empty/None deltas as keep-alives."""
+        gen = OllamaGenerator(model="test-model")
+        gen.client = FakeOpenAIClient(stream_deltas=["A", "", None, "B"])  # type: ignore[assignment]
+        chunks = list(gen.generate_stream([{"role": "user", "content": "q"}]))
+        assert chunks == ["A", "B"]
+
+    def test_generate_stream_connection_error_becomes_friendly_runtime_error(self):
+        from openai import APIConnectionError
+
+        gen = OllamaGenerator(model="test-model")
+
+        class FailingClient:
+            def __init__(self) -> None:
+                self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._fail))
+
+            def _fail(self, **_):
+                raise APIConnectionError(request=MagicMock())
+
+        gen.client = FailingClient()  # type: ignore[assignment]
+        with pytest.raises(RuntimeError, match="Is Ollama running"):
+            list(gen.generate_stream([{"role": "user", "content": "q"}]))
 
 
 # ---------------------------------------------------------------------------
