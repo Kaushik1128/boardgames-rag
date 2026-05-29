@@ -155,6 +155,45 @@ uv run python -m boardgames_rag.evaluate --collection boardgames
 uv run python -m boardgames_rag.evaluate --collection boardgames --pipeline agent
 ```
 
+## Running the service
+
+A FastAPI app wraps the agent behind a `POST /ask` endpoint. Qdrant and
+Ollama need to be running (same prerequisites as the CLI).
+
+```bash
+uv run uvicorn boardgames_rag.service:app --reload
+```
+
+First request is slow (~5 s) as the cross-encoder warms up; subsequent ones
+are warm. The easiest way to poke at the service interactively is the
+auto-generated OpenAPI playground:
+
+```
+http://127.0.0.1:8000/docs
+```
+
+Or hit it from a shell. `curl.exe` works the same on every OS (on
+PowerShell, the `.exe` matters — bare `curl` is an alias for
+`Invoke-WebRequest`, which has a different flag syntax):
+
+```bash
+# Liveness check
+curl.exe http://127.0.0.1:8000/health
+
+# Ask a question
+curl.exe -X POST http://127.0.0.1:8000/ask -H "content-type: application/json" -d "{\"question\":\"How do I trade resources in Catan?\"}"
+```
+
+PowerShell-native equivalent:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+
+$body = @{ question = "How do I trade resources in Catan?" } | ConvertTo-Json
+Invoke-RestMethod -Uri http://127.0.0.1:8000/ask `
+    -Method Post -ContentType "application/json" -Body $body
+```
+
 ## Configuration
 
 Defaults live in [`config.yaml`](config.yaml); CLI flags override them.
