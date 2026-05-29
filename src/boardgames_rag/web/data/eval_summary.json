@@ -1,0 +1,94 @@
+{
+  "judge": "gemini-2.5-flash",
+  "n_samples": 30,
+  "test_set": "eval/testset.jsonl — 3 questions per game, user-verified",
+  "metrics": [
+    { "key": "faithfulness", "label": "Faithfulness", "good": "high" },
+    { "key": "answer_relevancy", "label": "Answer relevancy", "good": "high" },
+    { "key": "llm_context_precision_with_reference", "label": "Context precision", "good": "high" },
+    { "key": "context_recall", "label": "Context recall", "good": "high" }
+  ],
+  "experiments": [
+    {
+      "id": "rerank-ablation",
+      "title": "Does the cross-encoder reranker earn its cost?",
+      "subtitle": "Week 4 — rerank ablation",
+      "date": "2026-05-15",
+      "narrative": "Every metric improved when the cross-encoder reranker was layered on top of the BM25 + dense fused retrieval. Faithfulness went from 0.85 to 0.94 — the model hallucinates less when the prompt context is better-ranked. The reranker stayed in the pipeline.",
+      "arms": [
+        {
+          "label": "rerank-on",
+          "scores": {
+            "faithfulness": 0.94,
+            "answer_relevancy": 0.76,
+            "llm_context_precision_with_reference": 0.48,
+            "context_recall": 0.63
+          }
+        },
+        {
+          "label": "rerank-off",
+          "scores": {
+            "faithfulness": 0.85,
+            "answer_relevancy": 0.68,
+            "llm_context_precision_with_reference": 0.41,
+            "context_recall": 0.54
+          }
+        }
+      ]
+    },
+    {
+      "id": "agent-first-attempt",
+      "title": "Does the LangGraph agent beat the linear pipeline?",
+      "subtitle": "Week 5 — first attempt, with DuckDuckGo web fallback enabled",
+      "date": "2026-05-22",
+      "narrative": "The agent regressed on every metric. Per-question diagnosis showed two failure modes: the small local critic over-flagged sufficient context as 'insufficient' and over-triggered the loop, and when the loop exhausted, the DuckDuckGo web fallback fed off-domain snippets to the generator — faithfulness collapsed (-0.16) and the wrong context tanked recall (-0.14). The agent was not deploy-ready as-is.",
+      "arms": [
+        {
+          "label": "agent",
+          "scores": {
+            "faithfulness": 0.8145,
+            "answer_relevancy": 0.7099,
+            "llm_context_precision_with_reference": 0.4852,
+            "context_recall": 0.4889
+          }
+        },
+        {
+          "label": "linear",
+          "scores": {
+            "faithfulness": 0.9757,
+            "answer_relevancy": 0.7715,
+            "llm_context_precision_with_reference": 0.4874,
+            "context_recall": 0.6278
+          }
+        }
+      ]
+    },
+    {
+      "id": "agent-fixed",
+      "title": "Does disabling the web fallback close the regression?",
+      "subtitle": "Week 5 — agent re-run, web fallback off, otherwise unchanged",
+      "date": "2026-05-29",
+      "narrative": "Disabling the web fallback erased the regression on the two output-quality metrics. Faithfulness recovered by +0.14 (0.81 → 0.95, matching linear); answer relevancy followed suit. A small residual gap remains on the retrieval-side metrics (context precision and recall), attributable to the critic occasionally looping with a reformulated query that lands on slightly different chunks. The agent is now ship-ready on local Ollama, with further gains expected when the deployed pipeline uses Groq's 70B model as the critic.",
+      "arms": [
+        {
+          "label": "agent",
+          "scores": {
+            "faithfulness": 0.9462,
+            "answer_relevancy": 0.7454,
+            "llm_context_precision_with_reference": 0.4785,
+            "context_recall": 0.5917
+          }
+        },
+        {
+          "label": "linear",
+          "scores": {
+            "faithfulness": 0.9437,
+            "answer_relevancy": 0.7464,
+            "llm_context_precision_with_reference": 0.5087,
+            "context_recall": 0.6444
+          }
+        }
+      ]
+    }
+  ]
+}

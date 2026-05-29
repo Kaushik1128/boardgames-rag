@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Evaluation · boardgames-rag</title>
+    <meta
+      name="description"
+      content="Measured comparisons across the boardgames-rag pipeline — rerank ablation and the agent-vs-linear story."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='75' font-size='80' text-anchor='middle'%3E🎲%3C/text%3E%3C/svg%3E"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = { darkMode: "class" };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body
+    class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500/30"
+  >
+    <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-10">
+      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-3 group">
+          <span class="text-2xl">🎲</span>
+          <div>
+            <h1 class="text-lg font-semibold tracking-tight group-hover:text-emerald-400 transition-colors">
+              boardgames-rag
+            </h1>
+            <p class="text-xs text-slate-400">Agentic RAG over 10 rulebooks</p>
+          </div>
+        </a>
+        <nav class="flex items-center gap-4 text-sm">
+          <a href="/" class="text-slate-300 hover:text-emerald-400 transition-colors">Ask</a>
+          <span class="text-emerald-400 font-medium">Evaluation</span>
+          <a
+            href="https://github.com/Kaushik1128/boardgames-rag"
+            target="_blank"
+            rel="noopener"
+            class="text-slate-300 hover:text-emerald-400 transition-colors"
+            >GitHub →</a
+          >
+        </nav>
+      </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-10 space-y-12">
+      <!-- Intro -->
+      <section class="space-y-4">
+        <h2 class="text-3xl font-bold tracking-tight">Evaluation</h2>
+        <p class="text-slate-300 max-w-3xl leading-relaxed">
+          Every claim about this pipeline is backed by a measured run. The harness uses
+          <a
+            href="https://docs.ragas.io/"
+            target="_blank"
+            rel="noopener"
+            class="text-emerald-400 hover:underline"
+            >Ragas</a
+          >
+          with four metrics — faithfulness, answer relevancy, context precision, context recall —
+          judged by a hosted LLM against a curated test set. Three experiments are shown below; they
+          run in order and tell a story.
+        </p>
+        <div
+          id="eval-meta"
+          class="text-xs text-slate-500 flex flex-wrap gap-4 border-t border-slate-800 pt-3"
+        ></div>
+      </section>
+
+      <!-- Experiments — populated by eval.js -->
+      <section id="experiments" class="space-y-12"></section>
+
+      <!-- About the methodology -->
+      <section class="space-y-3 border-t border-slate-800 pt-8">
+        <h3 class="text-lg font-semibold">About the metrics</h3>
+        <ul class="text-sm text-slate-300 space-y-2 max-w-3xl">
+          <li>
+            <strong class="text-emerald-400">Faithfulness</strong> — fraction of claims in the
+            answer supported by the retrieved context. The hallucination metric.
+          </li>
+          <li>
+            <strong class="text-emerald-400">Answer relevancy</strong> — how directly the answer
+            addresses the question, scored by semantic similarity to the original question.
+          </li>
+          <li>
+            <strong class="text-emerald-400">Context precision</strong> — fraction of retrieved
+            context that is actually relevant to the reference answer. Penalizes noisy retrieval.
+          </li>
+          <li>
+            <strong class="text-emerald-400">Context recall</strong> — fraction of the reference
+            answer's claims that the retrieved context covers. Penalizes missing-info retrieval.
+          </li>
+        </ul>
+        <p class="text-sm text-slate-400 max-w-3xl pt-2">
+          Earlier ablation runs with a weaker local judge gave a noisier and (in one case)
+          misleading verdict — a reminder that, in LLM-as-judge evaluation, judge quality materially
+          shapes the conclusion. The numbers above are the second pass with a stronger judge.
+        </p>
+      </section>
+    </main>
+
+    <footer class="border-t border-slate-800 mt-16">
+      <div class="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-500">
+        Test set, harness, and saved reports are versioned in the
+        <a
+          href="https://github.com/Kaushik1128/boardgames-rag"
+          target="_blank"
+          rel="noopener"
+          class="hover:text-emerald-400 transition-colors"
+          >GitHub repository</a
+        >.
+      </div>
+    </footer>
+
+    <script src="/eval.js" defer></script>
+  </body>
+</html>

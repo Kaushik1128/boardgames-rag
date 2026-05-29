@@ -347,3 +347,55 @@ def test_static_mount_does_not_shadow_api_routes():
     assert health.json()["pipeline_llm"] == "ollama:x"
     assert docs.status_code == 200
     assert "swagger" in docs.text.lower()
+
+
+# ---------------------------------------------------------------------------
+# /eval.html — measured-eval dashboard
+# ---------------------------------------------------------------------------
+
+
+def test_eval_html_is_served():
+    with TestClient(create_app(graph=FakeGraph())) as client:
+        response = client.get("/eval.html")
+    assert response.status_code == 200
+    assert "Evaluation" in response.text
+    # Pulls in Chart.js + the dashboard script.
+    assert "chart.js" in response.text.lower()
+    assert "/eval.js" in response.text
+
+
+def test_eval_js_is_served():
+    with TestClient(create_app(graph=FakeGraph())) as client:
+        response = client.get("/eval.js")
+    assert response.status_code == 200
+    assert "Chart" in response.text
+
+
+def test_eval_summary_json_has_three_experiments():
+    """The dashboard's data source — must keep telling the three-act story:
+    rerank ablation, first agent regression, agent recovery after the fix."""
+    with TestClient(create_app(graph=FakeGraph())) as client:
+        response = client.get("/data/eval_summary.json")
+    assert response.status_code == 200
+    summary = response.json()
+    assert summary["judge"] == "gemini-2.5-flash"
+    assert summary["n_samples"] == 30
+    assert len(summary["experiments"]) == 3
+    ids = {e["id"] for e in summary["experiments"]}
+    assert ids == {"rerank-ablation", "agent-first-attempt", "agent-fixed"}
+
+
+def test_eval_summary_arms_have_scores_for_every_metric():
+    """Catches data corruption: every arm must have a score for every metric
+    declared at the top level — otherwise Chart.js silently renders nothing."""
+    with TestClient(create_app(graph=FakeGraph())) as client:
+        response = client.get("/data/eval_summary.json")
+    summary = response.json()
+    metric_keys = {m["key"] for m in summary["metrics"]}
+    for exp in summary["experiments"]:
+        for arm in exp["arms"]:
+            assert set(arm["scores"].keys()) == metric_keys, (
+                f"{exp['id']} / {arm['label']} score keys mismatch"
+            )
+            for v in arm["scores"].values():
+                assert 0.0 <= v <= 1.0
