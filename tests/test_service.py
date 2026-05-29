@@ -317,6 +317,19 @@ def test_app_js_is_served():
     assert "submitQuestion" in response.text or "fetch" in response.text
 
 
+def test_index_html_has_compare_toggle():
+    """Phase 5 contract — the compare toggle must be present in the markup
+    and the JS must fire both pipelines when it's checked."""
+    with TestClient(create_app(graph=FakeGraph())) as client:
+        html = client.get("/").text
+        js = client.get("/app.js").text
+    assert 'id="compare-toggle"' in html
+    # JS reads the checkbox state and conditionally invokes the linear arm.
+    assert "compare-toggle" in js
+    assert "runLinear" in js
+    assert "runAgent" in js
+
+
 def test_games_json_is_served_and_has_ten_games():
     with TestClient(create_app(graph=FakeGraph())) as client:
         response = client.get("/data/games.json")

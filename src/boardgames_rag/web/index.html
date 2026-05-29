@@ -68,7 +68,7 @@
       </section>
 
       <!-- Question input -->
-      <section>
+      <section class="space-y-3">
         <form id="ask-form" class="flex flex-col sm:flex-row gap-2">
           <input
             id="question-input"
@@ -85,48 +85,109 @@
             Ask
           </button>
         </form>
+        <!-- Compare toggle: run the linear pipeline alongside the agent so a
+             visitor can see the eval finding (agent ≈ linear on output quality)
+             play out interactively. -->
+        <label
+          for="compare-toggle"
+          class="inline-flex items-center gap-2 text-sm text-slate-400 cursor-pointer select-none hover:text-slate-300 transition-colors"
+        >
+          <input
+            type="checkbox"
+            id="compare-toggle"
+            class="accent-emerald-500 w-4 h-4 rounded"
+          />
+          Compare with the linear pipeline (week-5 eval finding, side-by-side)
+        </label>
       </section>
 
       <!-- Result area -->
-      <section id="result" class="hidden grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <!-- Left: trace + answer -->
-        <div class="lg:col-span-3 space-y-6">
-          <!-- Trace -->
-          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-            <h3 class="text-xs uppercase tracking-wider text-slate-400 mb-3">
-              Agent trace
+      <section id="result" class="hidden space-y-6">
+        <!-- Agent card -->
+        <article
+          id="agent-card"
+          class="bg-slate-900 border border-emerald-900/30 rounded-xl p-5"
+        >
+          <header class="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+            <h3 class="text-sm uppercase tracking-wider text-emerald-400">
+              Agent pipeline
             </h3>
-            <ol id="trace" class="space-y-2 text-sm font-mono"></ol>
+            <span class="text-xs text-slate-500 font-mono">
+              plan → retrieve → critique → generate
+            </span>
+          </header>
+          <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div class="lg:col-span-3 space-y-4">
+              <ol id="agent-trace" class="space-y-2 text-sm font-mono"></ol>
+              <div
+                id="agent-answer-card"
+                class="border-t border-slate-800 pt-4 hidden"
+              >
+                <h4 class="text-xs uppercase tracking-wider text-emerald-400 mb-2">Answer</h4>
+                <div
+                  id="agent-answer"
+                  class="text-slate-100 leading-relaxed whitespace-pre-wrap"
+                ></div>
+              </div>
+            </div>
+            <div class="lg:col-span-2">
+              <div id="agent-sources-card" class="hidden">
+                <h4 class="text-xs uppercase tracking-wider text-slate-400 mb-3">
+                  Cited sources
+                </h4>
+                <ol id="agent-sources" class="space-y-3 text-sm"></ol>
+              </div>
+            </div>
           </div>
-          <!-- Answer -->
-          <div
-            id="answer-card"
-            class="bg-slate-900 border border-emerald-900/40 rounded-xl p-5 hidden"
-          >
-            <h3 class="text-xs uppercase tracking-wider text-emerald-400 mb-3">Answer</h3>
-            <div id="answer" class="text-slate-100 leading-relaxed whitespace-pre-wrap"></div>
-          </div>
-          <!-- Error -->
-          <div
-            id="error-card"
-            class="bg-red-950/50 border border-red-900 rounded-xl p-5 hidden"
-          >
-            <h3 class="text-xs uppercase tracking-wider text-red-400 mb-2">Error</h3>
-            <div id="error-message" class="text-red-200 text-sm"></div>
-          </div>
-        </div>
+        </article>
 
-        <!-- Right: sources -->
-        <div class="lg:col-span-2">
-          <div
-            id="sources-card"
-            class="bg-slate-900 border border-slate-800 rounded-xl p-5 hidden"
-          >
-            <h3 class="text-xs uppercase tracking-wider text-slate-400 mb-3">
-              Cited sources
+        <!-- Linear card — only shown in compare mode -->
+        <article
+          id="linear-card"
+          class="hidden bg-slate-900 border border-sky-900/30 rounded-xl p-5"
+        >
+          <header class="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+            <h3 class="text-sm uppercase tracking-wider text-sky-400">
+              Linear pipeline
             </h3>
-            <ol id="sources" class="space-y-3 text-sm"></ol>
+            <span class="text-xs text-slate-500 font-mono">
+              retrieve → rerank → generate
+            </span>
+          </header>
+          <div
+            id="linear-status"
+            class="text-sm text-slate-400 italic mb-3"
+          >
+            Running…
           </div>
+          <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div class="lg:col-span-3">
+              <div id="linear-answer-card" class="hidden">
+                <h4 class="text-xs uppercase tracking-wider text-sky-400 mb-2">Answer</h4>
+                <div
+                  id="linear-answer"
+                  class="text-slate-100 leading-relaxed whitespace-pre-wrap"
+                ></div>
+              </div>
+            </div>
+            <div class="lg:col-span-2">
+              <div id="linear-sources-card" class="hidden">
+                <h4 class="text-xs uppercase tracking-wider text-slate-400 mb-3">
+                  Cited sources
+                </h4>
+                <ol id="linear-sources" class="space-y-3 text-sm"></ol>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Shared error banner — either pipeline can populate it -->
+        <div
+          id="error-card"
+          class="bg-red-950/50 border border-red-900 rounded-xl p-5 hidden"
+        >
+          <h3 class="text-xs uppercase tracking-wider text-red-400 mb-2">Error</h3>
+          <div id="error-message" class="text-red-200 text-sm"></div>
         </div>
       </section>
     </main>

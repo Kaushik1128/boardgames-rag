@@ -1,9 +1,9 @@
 // boardgames-rag — frontend logic.
 //
-// EventSource can't POST, so we fetch /ask/stream and parse the SSE wire
-// format by hand off a ReadableStream. Each event updates the trace
-// timeline, the streaming answer text, the sources panel, or the error
-// banner depending on its name.
+// The agent path streams via fetch + ReadableStream (EventSource can't POST)
+// and animates events as they arrive. The linear path uses plain POST /ask
+// and renders its answer when the response arrives. When "Compare" is on,
+// both fire in parallel and render into their own cards.
 
 const STATE = {
   selectedGame: null,
@@ -44,7 +44,7 @@ function renderGameGrid() {
     button.dataset.slug = game.slug;
     button.innerHTML = `
       <span class="text-2xl">${game.emoji}</span>
-      <span class="text-slate-200">${game.name}</span>
+      <span class="text-slate-200">${escapeHtml(game.name)}</span>
     `;
     button.addEventListener("click", () => selectGame(game.slug));
     grid.appendChild(button);
@@ -91,7 +91,7 @@ function renderChips(slug) {
 }
 
 // ---------------------------------------------------------------------------
-// Asking — fetch /ask/stream, parse SSE, render
+// Submitting — fan-out to the agent and (optionally) the linear pipeline
 // ---------------------------------------------------------------------------
 
 document.getElementById("ask-form").addEventListener("submit", (event) => {
@@ -102,21 +102,22 @@ document.getElementById("ask-form").addEventListener("submit", (event) => {
 
 async function submitQuestion(question) {
   resetResultArea();
+  const compare = document.getElementById("compare-toggle").checked;
   const button = document.getElementById("ask-button");
   button.disabled = true;
   button.textContent = "Thinking…";
 
+  document.getElementById("agent-card").classList.remove("hidden");
+  if (compare) {
+    document.getElementById("linear-card").classList.remove("hidden");
+  }
+
   try {
-    const response = await fetch("/ask/stream", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ question }),
-    });
-    if (!response.ok) {
-      showError(`Request failed: HTTP ${response.status}`);
-      return;
-    }
-    await readSSE(response.body, handleEvent);
+    // Fan out. Both pipelines run server-side regardless of UI mode;
+    // the agent path always streams.
+    const tasks = [runAgent(question)];
+    if (compare) tasks.push(runLinear(question));
+    await Promise.all(tasks);
   } catch (err) {
     showError(err.message || String(err));
   } finally {
@@ -127,12 +128,163 @@ async function submitQuestion(question) {
 
 function resetResultArea() {
   document.getElementById("result").classList.remove("hidden");
-  document.getElementById("trace").innerHTML = "";
-  document.getElementById("answer").textContent = "";
-  document.getElementById("answer-card").classList.add("hidden");
-  document.getElementById("sources").innerHTML = "";
-  document.getElementById("sources-card").classList.add("hidden");
+
+  document.getElementById("agent-trace").innerHTML = "";
+  document.getElementById("agent-answer").textContent = "";
+  document.getElementById("agent-answer").classList.remove("complete");
+  document.getElementById("agent-answer-card").classList.add("hidden");
+  document.getElementById("agent-sources").innerHTML = "";
+  document.getElementById("agent-sources-card").classList.add("hidden");
+
+  document.getElementById("linear-card").classList.add("hidden");
+  document.getElementById("linear-status").classList.remove("hidden");
+  document.getElementById("linear-status").textContent = "Running…";
+  document.getElementById("linear-answer").textContent = "";
+  document.getElementById("linear-answer-card").classList.add("hidden");
+  document.getElementById("linear-sources").innerHTML = "";
+  document.getElementById("linear-sources-card").classList.add("hidden");
+
   document.getElementById("error-card").classList.add("hidden");
+}
+
+// ---------------------------------------------------------------------------
+// Agent (streaming)
+// ---------------------------------------------------------------------------
+
+async function runAgent(question) {
+  const response = await fetch("/ask/stream", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+  if (!response.ok) {
+    showError(`Agent request failed: HTTP ${response.status}`);
+    return;
+  }
+  await readSSE(response.body, handleAgentEvent);
+}
+
+function handleAgentEvent(name, data) {
+  switch (name) {
+    case "plan":
+      addAgentTraceStep("✏️", `Planned search query: <code>${escapeHtml(data.query)}</code>`);
+      break;
+    case "retrieve":
+      addAgentTraceStep(
+        "📚",
+        `Retrieved ${data.n_chunks} chunks <span class="text-slate-500">(attempt ${data.attempt})</span>`,
+      );
+      break;
+    case "critique": {
+      const verdict = data.verdict;
+      const icon = verdict === "sufficient" ? "✅" : "🔁";
+      const detail = data.reformulated_query
+        ? ` → reformulating: <code>${escapeHtml(data.reformulated_query)}</code>`
+        : "";
+      addAgentTraceStep(icon, `Critic: <strong>${verdict}</strong>${detail}`);
+      break;
+    }
+    case "web_fallback":
+      addAgentTraceStep("🌐", `Web fallback fired — ${data.n_chunks} result(s)`);
+      break;
+    case "token":
+      appendAgentToken(data.text);
+      break;
+    case "sources":
+      renderSources("agent", data);
+      break;
+    case "done":
+      addAgentTraceStep(
+        "🏁",
+        `Done <span class="text-slate-500">· ${data.attempts} retrieval attempt(s)${data.used_web ? " · used web" : ""}</span>`,
+      );
+      document.getElementById("agent-answer").classList.add("complete");
+      break;
+    case "error":
+      showError(data.message || "The pipeline failed.");
+      break;
+    default:
+      console.warn("Unknown SSE event:", name, data);
+  }
+}
+
+function addAgentTraceStep(icon, html) {
+  const ol = document.getElementById("agent-trace");
+  const li = document.createElement("li");
+  li.className = "flex items-start gap-2 trace-step";
+  li.innerHTML = `<span class="text-base leading-none mt-0.5">${icon}</span><span class="text-slate-300">${html}</span>`;
+  ol.appendChild(li);
+}
+
+function appendAgentToken(text) {
+  const card = document.getElementById("agent-answer-card");
+  if (card.classList.contains("hidden")) card.classList.remove("hidden");
+  document.getElementById("agent-answer").textContent += text;
+}
+
+// ---------------------------------------------------------------------------
+// Linear (synchronous POST /ask)
+// ---------------------------------------------------------------------------
+
+async function runLinear(question) {
+  const t0 = performance.now();
+  let response;
+  try {
+    response = await fetch("/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+  } catch (err) {
+    setLinearStatus(`Linear request failed: ${err.message || err}`);
+    return;
+  }
+  if (!response.ok) {
+    setLinearStatus(`Linear request failed: HTTP ${response.status}`);
+    return;
+  }
+  const body = await response.json();
+  const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+  setLinearStatus(`Completed in ${elapsed}s · ${body.sources.length} cited source(s)`);
+
+  document.getElementById("linear-answer").textContent = body.answer || "";
+  document.getElementById("linear-answer-card").classList.remove("hidden");
+  renderSources("linear", body.sources);
+}
+
+function setLinearStatus(text) {
+  const el = document.getElementById("linear-status");
+  el.textContent = text;
+  el.classList.remove("italic");
+}
+
+// ---------------------------------------------------------------------------
+// Shared rendering — sources panel, error banner, SSE reader, HTML escaping
+// ---------------------------------------------------------------------------
+
+function renderSources(prefix, sources) {
+  const card = document.getElementById(`${prefix}-sources-card`);
+  const ol = document.getElementById(`${prefix}-sources`);
+  ol.innerHTML = "";
+  sources.forEach((src, i) => {
+    const li = document.createElement("li");
+    const borderColor = prefix === "agent" ? "border-emerald-700" : "border-sky-700";
+    const fileColor = prefix === "agent" ? "text-emerald-400" : "text-sky-400";
+    li.className = `border-l-2 ${borderColor} pl-3`;
+    li.innerHTML = `
+      <div class="${fileColor} text-xs font-mono mb-1">[${i + 1}] ${escapeHtml(src.source_file)}</div>
+      <div class="text-slate-300 font-medium mb-1">${escapeHtml(src.heading || "—")}</div>
+      <div class="text-slate-400 text-xs leading-relaxed line-clamp-4">${escapeHtml(src.text || "")}</div>
+    `;
+    ol.appendChild(li);
+  });
+  card.classList.remove("hidden");
+}
+
+function showError(message) {
+  const card = document.getElementById("error-card");
+  document.getElementById("error-message").textContent = message;
+  card.classList.remove("hidden");
 }
 
 // SSE frame format: `event: <name>\ndata: <json>\n\n`. Read the response
@@ -168,95 +320,6 @@ function parseFrame(frame) {
   } catch {
     return { name, data: {} };
   }
-}
-
-// ---------------------------------------------------------------------------
-// Event handlers — one per SSE event name
-// ---------------------------------------------------------------------------
-
-function handleEvent(name, data) {
-  switch (name) {
-    case "plan":
-      addTraceStep("✏️", `Planned search query: <code>${escapeHtml(data.query)}</code>`);
-      break;
-    case "retrieve":
-      addTraceStep(
-        "📚",
-        `Retrieved ${data.n_chunks} chunks <span class="text-slate-500">(attempt ${data.attempt})</span>`,
-      );
-      break;
-    case "critique": {
-      const verdict = data.verdict;
-      const icon = verdict === "sufficient" ? "✅" : "🔁";
-      const detail = data.reformulated_query
-        ? ` → reformulating: <code>${escapeHtml(data.reformulated_query)}</code>`
-        : "";
-      addTraceStep(icon, `Critic: <strong>${verdict}</strong>${detail}`);
-      break;
-    }
-    case "web_fallback":
-      addTraceStep("🌐", `Web fallback fired — ${data.n_chunks} result(s)`);
-      break;
-    case "token":
-      appendAnswerToken(data.text);
-      break;
-    case "sources":
-      renderSources(data);
-      break;
-    case "done":
-      addTraceStep(
-        "🏁",
-        `Done <span class="text-slate-500">· ${data.attempts} retrieval attempt(s)${data.used_web ? " · used web" : ""}</span>`,
-      );
-      // Drop the streaming caret on the answer body.
-      document.getElementById("answer").classList.add("complete");
-      break;
-    case "error":
-      showError(data.message || "The pipeline failed.");
-      break;
-    default:
-      console.warn("Unknown SSE event:", name, data);
-  }
-}
-
-function addTraceStep(icon, html) {
-  const ol = document.getElementById("trace");
-  const li = document.createElement("li");
-  li.className = "flex items-start gap-2 trace-step";
-  li.innerHTML = `<span class="text-base leading-none mt-0.5">${icon}</span><span class="text-slate-300">${html}</span>`;
-  ol.appendChild(li);
-}
-
-function appendAnswerToken(text) {
-  const card = document.getElementById("answer-card");
-  if (card.classList.contains("hidden")) {
-    card.classList.remove("hidden");
-  }
-  const node = document.getElementById("answer");
-  node.textContent += text;
-}
-
-function renderSources(sources) {
-  const card = document.getElementById("sources-card");
-  const ol = document.getElementById("sources");
-  ol.innerHTML = "";
-  sources.forEach((src, i) => {
-    const li = document.createElement("li");
-    li.className = "border-l-2 border-emerald-700 pl-3";
-    li.innerHTML = `
-      <div class="text-emerald-400 text-xs font-mono mb-1">[${i + 1}] ${escapeHtml(src.source_file)}</div>
-      <div class="text-slate-300 font-medium mb-1">${escapeHtml(src.heading || "—")}</div>
-      <div class="text-slate-400 text-xs leading-relaxed line-clamp-4">${escapeHtml(src.text || "")}</div>
-    `;
-    ol.appendChild(li);
-  });
-  card.classList.remove("hidden");
-}
-
-function showError(message) {
-  const card = document.getElementById("error-card");
-  document.getElementById("error-message").textContent = message;
-  card.classList.remove("hidden");
 }
 
 function escapeHtml(s) {

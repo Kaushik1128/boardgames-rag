@@ -42,14 +42,17 @@ code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
-/* The answer body. Tighter line-height than the default so multi-paragraph
+/* Answer bodies. Tighter line-height than the default so multi-paragraph
    rules text reads as one cohesive answer. */
-#answer {
+#agent-answer,
+#linear-answer {
   line-height: 1.6;
 }
 
-/* Streaming caret on the in-progress answer. Pure CSS, no JS heartbeat. */
-#answer:not(:empty)::after {
+/* Streaming caret on the agent's in-progress answer. Pure CSS, no JS
+   heartbeat. The linear answer arrives synchronously, so it never gets
+   the caret. */
+#agent-answer:not(:empty)::after {
   content: "▌";
   display: inline-block;
   color: rgb(52 211 153);
@@ -62,7 +65,8 @@ code {
   51%, 100% { opacity: 0; }
 }
 
-/* Once the "done" event fires we add this class on #answer to drop the caret. */
-#answer.complete::after {
+/* Once the "done" event fires we add this class on #agent-answer to drop
+   the caret. */
+#agent-answer.complete::after {
   content: none;
 }
