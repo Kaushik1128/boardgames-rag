@@ -12,9 +12,8 @@ agent's reasoning shown live.
 
 **[Try the live demo →](https://huggingface.co/spaces/Malvenoak/boardgames-rag)**
 
-<!-- TODO: drop in an animated GIF of the live demo once recorded.
-     Suggested path: docs/screenshots/demo.gif -->
-<!-- ![Demo](docs/screenshots/demo.gif) -->
+
+![Demo]("C:\Users\kaush\Videos\Screen Recordings\demo.gif")
 
 **Runs fully local at $0 in dev.** The RAG pipeline uses local LLM inference
 (Ollama) and local embeddings (sentence-transformers) — no API keys, no paid
