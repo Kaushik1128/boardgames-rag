@@ -26,7 +26,7 @@ data/raw/
 .env
 .env.local
 
-# Docs
-README.md
-*.md
-!deploy/HOW_TO_DEPLOY.md
+# Note: README.md is intentionally NOT excluded. Hatchling reads it during
+# `uv sync` to validate the project's `readme = "README.md"` declaration
+# in pyproject.toml. Excluding it makes the build fail with a confusing
+# "Readme file does not exist" OSError.

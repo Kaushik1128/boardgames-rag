@@ -16,21 +16,41 @@ COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /uvx /bin/
 
 WORKDIR /app
 
-# Dependency layer first so a source-only edit doesn't bust the cache.
+# Two-stage `uv sync` for layer caching:
+#
+#   1. Sync DEPENDENCIES only — `--no-install-project` tells uv to skip
+#      building/installing the local package itself, which means hatchling
+#      isn't invoked and README.md doesn't need to be present yet. This
+#      layer only invalidates when pyproject.toml or uv.lock change, so
+#      source-only edits stay fast on rebuild.
+#
+#   2. Once the project sources (and README.md) are copied in, run
+#      `uv sync` again. This time hatchling builds the local package —
+#      it reads README.md to satisfy the `readme = "README.md"` field
+#      in pyproject.toml, then installs `boardgames_rag` into the venv
+#      as an editable install. `uv run uvicorn boardgames_rag.service:app`
+#      depends on that install.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-install-project --no-dev
 
-# Application source.
+# Application source + README (the latter needed for hatchling's metadata
+# validation on the next `uv sync`).
 COPY src/ ./src/
+COPY README.md ./
 
 # Pre-built artifacts: embedded Qdrant collection + BM25 pickle. Both are
-# produced locally by `deploy/build_indexes.py` before this build runs.
+# produced locally by `uv run python -m boardgames_rag.ingest --qdrant-path
+# ./data/qdrant_local ...` before this build runs.
 COPY data/qdrant_local/ ./data/qdrant_local/
 COPY data/bm25/ ./data/bm25/
 
 # Deploy-flavored config: embedded Qdrant + Groq generation LLM. Overrides
 # the dev-time config.yaml.
 COPY deploy/config.yaml ./config.yaml
+
+# Stage 2 of the uv sync — installs the local boardgames_rag package now
+# that its source + readme are present.
+RUN uv sync --frozen --no-dev
 
 # HF Spaces convention: serve on 7860. The Space's frontmatter declares
 # the same port so the iframe knows where to point.
