@@ -309,7 +309,7 @@ uv run python -m boardgames_rag.ingest \
 docker build -t boardgames-rag .
 docker run --rm -p 7860:7860 -e GROQ_API_KEY=$env:GROQ_API_KEY boardgames-rag
 
-# Push to the Space (after huggingface-cli login + Space creation)
+# Push to the Space (after `hf auth login` + Space creation)
 git push space space:main
 ```
 

@@ -10,7 +10,9 @@ The full procedure runs locally once, then becomes a `git push`.
 ## Prerequisites
 
 - A HuggingFace account.
-- `huggingface_hub` CLI installed (`uv run huggingface-cli` works).
+- The `hf` CLI (the renamed successor to `huggingface-cli`; ships with
+  `huggingface_hub`, so `uv run hf` Just Works once dependencies are
+  synced).
 - A free Groq API key — already in your `.env` from week 5.
 
 ## One-time setup
@@ -59,7 +61,8 @@ In the new Space's *Settings → Variables and secrets*:
 ### 4. Configure git for HuggingFace
 
 ```bash
-huggingface-cli login   # paste a write-access token from huggingface.co/settings/tokens
+# `huggingface-cli` was renamed to `hf` — old name is deprecated.
+hf auth login   # paste a write-access token from huggingface.co/settings/tokens
 git remote add space https://huggingface.co/spaces/<your-user>/boardgames-rag
 ```
 
