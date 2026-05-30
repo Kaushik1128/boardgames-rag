@@ -1,8 +1,8 @@
 ---
 title: boardgames-rag
 emoji: 🎲
-colorFrom: emerald
-colorTo: slate
+colorFrom: green
+colorTo: gray
 sdk: docker
 app_port: 7860
 short_description: Agentic RAG over 10 board game rulebooks

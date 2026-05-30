@@ -4,13 +4,13 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Tests](https://img.shields.io/badge/tests-241%20passing-success)
 ![Code style](https://img.shields.io/badge/code%20style-ruff-orange)
-[![HF Space](https://img.shields.io/badge/%F0%9F%A4%97%20Spaces-Live%20demo-yellow)](https://huggingface.co/spaces/Kaushik1128/boardgames-rag)
+[![HF Space](https://img.shields.io/badge/%F0%9F%A4%97%20Spaces-Live%20demo-yellow)](https://huggingface.co/spaces/Malvenoak/boardgames-rag)
 
 Agentic Retrieval-Augmented Generation over board game rulebooks — ask a
 natural-language rules question, get a grounded, cited answer with the
 agent's reasoning shown live.
 
-**[Try the live demo →](https://huggingface.co/spaces/Kaushik1128/boardgames-rag)**
+**[Try the live demo →](https://huggingface.co/spaces/Malvenoak/boardgames-rag)**
 
 <!-- TODO: drop in an animated GIF of the live demo once recorded.
      Suggested path: docs/screenshots/demo.gif -->
@@ -107,7 +107,7 @@ through the comparison view.
 
 ## Try it
 
-- **Live demo:** [huggingface.co/spaces/Kaushik1128/boardgames-rag](https://huggingface.co/spaces/Kaushik1128/boardgames-rag)
+- **Live demo:** [huggingface.co/spaces/Malvenoak/boardgames-rag](https://huggingface.co/spaces/Malvenoak/boardgames-rag)
 - **Evaluation dashboard:** the live `/eval.html` page renders the three
   measured experiments below as Chart.js bar charts with per-metric delta
   tables.
